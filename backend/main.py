@@ -2,6 +2,7 @@ from fastapi import FastAPI, HTTPException
 
 from db import get_db_connection
 from schemas import ComponentCreate, ComponentOut, DependencyCreate, DependencyOut, AnalysisRunRequest
+from analysis import build_adjacency, collect_affected_ids
 
 app = FastAPI(title="Analytics Impact Map")
 
@@ -210,7 +211,7 @@ def run_analysis(payload: AnalysisRunRequest):
             """
             select id, name, component_type, description
             from components
-            where id = %s
+            where id = %s;
             """,
             (payload.component_id,),
         )
@@ -223,18 +224,15 @@ def run_analysis(payload: AnalysisRunRequest):
 
         cur.execute(
             """
-            select target_component_id
+            select source_component_id, target_component_id
             from dependencies
-            where source_component_id = %s
-            order by target_component_id
-            """,
-            (payload.component_id,),
+            order by id;
+            """
         )
-        rows = cur.fetchall()
+        dependency_rows = cur.fetchall()
 
-        direct_affected_ids = []
-        for row in rows:
-            direct_affected_ids.append(row[0])
+        graph = build_adjacency(dependency_rows)
+        affected_ids = collect_affected_ids(payload.component_id, graph)
 
         cur.close()
         conn.close()
@@ -242,7 +240,8 @@ def run_analysis(payload: AnalysisRunRequest):
         return {
             "root_component_id": root_row[0],
             "root_component_name": root_row[1],
-            "direct_affected_ids": direct_affected_ids,
+            "affected_ids": affected_ids,
+            "affected_count": len(affected_ids),
         }
 
     except HTTPException:
