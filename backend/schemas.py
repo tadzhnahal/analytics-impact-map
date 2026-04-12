@@ -10,3 +10,14 @@ class ComponentOut(BaseModel):
     name: str
     component_type: str
     description: str | None = None
+
+class DependencyCreate(BaseModel):
+    source_component_id: int
+    target_component_id: int
+    dependency_type: str = 'hard'
+
+class DependencyOut(BaseModel):
+    id: int
+    source_component_id: int
+    target_component_id: int
+    dependency_type: str

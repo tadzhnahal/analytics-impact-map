@@ -5,3 +5,12 @@ create table if not exists components (
 	description text,
 	created_at timestamp default current_timestamp
 );
+
+create table if not exists dependencies (
+	id serial primary key,
+	source_component_id integer not null references components(id) on delete cascade,
+	target_component_id integer not null references components(id) on delete cascade,
+	dependency_type varchar(30) not null default 'hard',
+	created_at timestamp default current_timestamp,
+	unique (source_component_id, target_component_id)
+);

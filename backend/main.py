@@ -1,7 +1,7 @@
 from fastapi import FastAPI, HTTPException
 
 from db import get_db_connection
-from schemas import ComponentCreate, ComponentOut
+from schemas import ComponentCreate, ComponentOut, DependencyCreate, DependencyOut
 
 app = FastAPI(title="Analytics Impact Map")
 
@@ -98,3 +98,105 @@ def get_components():
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"db error: {e}")
+
+@app.post("/dependencies", response_model=DependencyOut)
+def create_dependency(dependency: DependencyCreate):
+    if dependency.source_component_id == dependency.target_component_id:
+        raise HTTPException(status_code=400, detail="component cannot depend on itself")
+
+    if dependency.dependency_type not in ["hard", "soft"]:
+        raise HTTPException(status_code=400, detail="dependency_type must be hard or soft")
+
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor()
+
+        cur.execute(
+            "select id from components where id = %s;",
+            (dependency.source_component_id,)
+        )
+        source_row = cur.fetchone()
+
+        cur.execute(
+            "select id from components where id = %s;",
+            (dependency.target_component_id,)
+        )
+        target_row = cur.fetchone()
+
+        if not source_row or not target_row:
+            cur.close()
+            conn.close()
+            raise HTTPException(status_code=404, detail="one or both components do not exist")
+
+        cur.execute(
+            """
+            insert into dependencies (source_component_id, target_component_id, dependency_type)
+            values (%s, %s, %s)
+            returning id, source_component_id, target_component_id, dependency_type;
+            """,
+            (
+                dependency.source_component_id,
+                dependency.target_component_id,
+                dependency.dependency_type,
+            ),
+        )
+
+        row = cur.fetchone()
+        conn.commit()
+
+        cur.close()
+        conn.close()
+
+        return {
+            "id": row[0],
+            "source_component_id": row[1],
+            "target_component_id": row[2],
+            "dependency_type": row[3],
+        }
+
+    except HTTPException:
+        raise
+
+    except Exception as e:
+        error_text = str(e).lower()
+
+        if "duplicate key value" in error_text:
+            raise HTTPException(status_code=400, detail="this dependency already exists")
+
+        raise HTTPException(status_code=500, detail=f"db error: {e}")
+
+@app.get("/dependencies", response_model=list[DependencyOut])
+def get_dependencies():
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor()
+        
+        cur.execute(
+            """
+            select id, source_component_id, target_component_id, dependency_type
+            from dependencies
+            order by id
+            """
+        )
+        
+        rows = cur.fetchall()
+        
+        cur.close()
+        conn.close()
+        
+        result = []
+        for row in rows:
+            result.append(
+                {
+                    "id": row[0],
+                    "source_component_id": row[1],
+                    "target_component_id": row[2],
+                    "dependency_type": row[3],
+                }
+            )
+            
+        return result
+    
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"db error: {e}")
+
