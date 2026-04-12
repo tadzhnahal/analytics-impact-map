@@ -202,7 +202,51 @@ def get_dependencies():
 
 @app.post("/analysis/run")
 def run_analysis(payload: AnalysisRunRequest):
-    return {
-        "message": "analysis route is ready",
-        "component_id": payload.component_id,
-    }
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor()
+
+        cur.execute(
+            """
+            select id, name, component_type, description
+            from components
+            where id = %s
+            """,
+            (payload.component_id,),
+        )
+        root_row = cur.fetchone()
+
+        if not root_row:
+            cur.close()
+            conn.close()
+            raise HTTPException(status_code=404, detail="Component not found")
+
+        cur.execute(
+            """
+            select target_component_id
+            from dependencies
+            where source_component_id = %s
+            order by target_component_id
+            """,
+            (payload.component_id,),
+        )
+        rows = cur.fetchall()
+
+        direct_affected_ids = []
+        for row in rows:
+            direct_affected_ids.append(row[0])
+
+        cur.close()
+        conn.close()
+
+        return {
+            "root_component_id": root_row[0],
+            "root_component_name": root_row[1],
+            "direct_affected_ids": direct_affected_ids,
+        }
+
+    except HTTPException:
+        raise
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"db error: {e}")
