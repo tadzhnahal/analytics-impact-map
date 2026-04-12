@@ -1,7 +1,7 @@
 from fastapi import FastAPI, HTTPException
 
 from db import get_db_connection
-from schemas import ComponentCreate, ComponentOut, DependencyCreate, DependencyOut
+from schemas import ComponentCreate, ComponentOut, DependencyCreate, DependencyOut, AnalysisRunRequest
 
 app = FastAPI(title="Analytics Impact Map")
 
@@ -200,3 +200,9 @@ def get_dependencies():
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"db error: {e}")
 
+@app.post("/analysis/run")
+def run_analysis(payload: AnalysisRunRequest):
+    return {
+        "message": "analysis route is ready",
+        "component_id": payload.component_id,
+    }

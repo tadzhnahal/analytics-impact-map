@@ -21,3 +21,6 @@ class DependencyOut(BaseModel):
     source_component_id: int
     target_component_id: int
     dependency_type: str
+
+class AnalysisRunRequest(BaseModel):
+    component_id: int
