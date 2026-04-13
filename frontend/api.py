@@ -1,0 +1,29 @@
+import os
+from pathlib import Path
+
+import requests
+from dotenv import load_dotenv
+
+BASE_DIR = Path(__file__).resolve().parent.parent
+load_dotenv(BASE_DIR / ".env")
+
+API_BASE_URL = os.getenv("API_BASE_URL", "http://127.0.0.1:8000")
+
+def get_components():
+    response = requests.get(f"{API_BASE_URL}/components", timeout=10)
+    response.raise_for_status()
+    return response.json()
+
+def get_dependencies():
+    response = requests.get(f"{API_BASE_URL}/dependencies", timeout=10)
+    response.raise_for_status()
+    return response.json()
+
+def run_analysis(component_id: int):
+    response = requests.post(
+        f"{API_BASE_URL}/analysis/run",
+        json={"component_id": component_id},
+        timeout=10,
+    )
+    response.raise_for_status()
+    return response.json()
