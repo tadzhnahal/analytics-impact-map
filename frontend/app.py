@@ -48,6 +48,41 @@ selected_component_id = component_options[selected_label]
 if st.button("Run impact analysis"):
     try:
         result = run_analysis(selected_component_id)
-        st.json(result)
+
+        root_component = result["root_component"]
+        affected_components = result["affected_components"]
+        affected_count = result["affected_count"]
+
+        st.subheader("Analysis result")
+
+        st.write("Root component:")
+        st.write(
+            {
+                "id": root_component["id"],
+                "name": root_component["name"],
+                "type": root_component["component_type"],
+                "description": root_component["description"],
+            }
+        )
+
+        st.write(f"Affected components: {affected_count}")
+
+        if affected_components:
+            affected_table = []
+
+            for item in affected_components:
+                affected_table.append(
+                    {
+                        "id": item["id"],
+                        "name": item["name"],
+                        "type": item["component_type"],
+                        "description": item["description"],
+                    }
+                )
+
+            st.table(affected_table)
+        else:
+            st.info("No affected components found")
+
     except Exception as e:
-        st.error(f"failed to run impact analysis: {e}")
+        st.error(f"failed to run analysis: {e}")

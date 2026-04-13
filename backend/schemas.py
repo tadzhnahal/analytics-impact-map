@@ -24,3 +24,14 @@ class DependencyOut(BaseModel):
 
 class AnalysisRunRequest(BaseModel):
     component_id: int
+
+class AnalysisComponentOut(BaseModel):
+    id: int
+    name: str
+    component_type: str
+    description: str | None = None
+
+class AnalysisResultOut(BaseModel):
+    root_component: AnalysisComponentOut
+    affected_components: list[AnalysisComponentOut]
+    affected_count: int

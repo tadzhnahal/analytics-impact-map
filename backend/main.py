@@ -1,7 +1,10 @@
 from fastapi import FastAPI, HTTPException
 
 from db import get_db_connection
-from schemas import ComponentCreate, ComponentOut, DependencyCreate, DependencyOut, AnalysisRunRequest
+from schemas import (ComponentCreate, ComponentOut,
+                     DependencyCreate, DependencyOut,
+                     AnalysisRunRequest, AnalysisComponentOut,
+                     AnalysisResultOut,)
 from analysis import build_adjacency, collect_affected_ids
 
 app = FastAPI(title="Analytics Impact Map")
@@ -201,7 +204,7 @@ def get_dependencies():
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"db error: {e}")
 
-@app.post("/analysis/run")
+@app.post("/analysis/run", response_model=AnalysisResultOut)
 def run_analysis(payload: AnalysisRunRequest):
     try:
         conn = get_db_connection()
@@ -220,7 +223,7 @@ def run_analysis(payload: AnalysisRunRequest):
         if not root_row:
             cur.close()
             conn.close()
-            raise HTTPException(status_code=404, detail="Component not found")
+            raise HTTPException(status_code=404, detail="component not found")
 
         cur.execute(
             """
@@ -234,14 +237,42 @@ def run_analysis(payload: AnalysisRunRequest):
         graph = build_adjacency(dependency_rows)
         affected_ids = collect_affected_ids(payload.component_id, graph)
 
+        affected_components = []
+
+        if affected_ids:
+            cur.execute(
+                """
+                select id, name, component_type, description
+                from components
+                where id = any(%s)
+                order by id;
+                """,
+                (affected_ids,),
+            )
+            affected_rows = cur.fetchall()
+
+            for row in affected_rows:
+                affected_components.append(
+                    {
+                        "id": row[0],
+                        "name": row[1],
+                        "component_type": row[2],
+                        "description": row[3],
+                    }
+                )
+
         cur.close()
         conn.close()
 
         return {
-            "root_component_id": root_row[0],
-            "root_component_name": root_row[1],
-            "affected_ids": affected_ids,
-            "affected_count": len(affected_ids),
+            "root_component": {
+                "id": root_row[0],
+                "name": root_row[1],
+                "component_type": root_row[2],
+                "description": root_row[3],
+            },
+            "affected_components": affected_components,
+            "affected_count": len(affected_components),
         }
 
     except HTTPException:
