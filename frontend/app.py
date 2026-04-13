@@ -1,6 +1,6 @@
 import streamlit as st
 
-from api import get_components
+from api import get_components, run_analysis
 
 st.set_page_config(page_title="Analytics Impact Map", layout="wide")
 st.title("Analytics Impact Map")
@@ -30,3 +30,24 @@ for item in components:
     )
 
 st.table(table_data)
+
+st.subheader("Run analysis")
+
+component_options = {}
+for item in components:
+    label = f"{item['id']} — {item['name']} ({item['component_type']})"
+    component_options[label] = item["id"]
+
+selected_label = st.selectbox(
+    "Choose root component",
+    list(component_options.keys()),
+)
+
+selected_component_id = component_options[selected_label]
+
+if st.button("Run impact analysis"):
+    try:
+        result = run_analysis(selected_component_id)
+        st.json(result)
+    except Exception as e:
+        st.error(f"failed to run impact analysis: {e}")
