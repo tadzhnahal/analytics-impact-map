@@ -1,13 +1,26 @@
 from fastapi import FastAPI, HTTPException
-
-from db import get_db_connection
-from schemas import (ComponentCreate, ComponentOut,
-                     DependencyCreate, DependencyOut,
-                     AnalysisRunRequest, AnalysisComponentOut,
-                     AnalysisResultOut,)
 from analysis import build_adjacency, collect_affected_ids
+from db import get_db_connection
+from schemas import (AnalysisResultOut, AnalysisRunRequest, ComponentCreate,
+                     ComponentOut, DependencyCreate, DependencyOut,)
 
 app = FastAPI(title="Analytics Impact Map")
+
+def component_row_to_dict(row):
+    return {
+        "id": row[0],
+        "name": row[1],
+        "component_type": row[2],
+        "description": row[3],
+    }
+
+def dependency_row_to_dict(row):
+    return {
+        "id": row[0],
+        "source_component_id": row[1],
+        "target_component_id": row[2],
+        "dependency_type": row[3],
+    }
 
 @app.get("/")
 def root():
@@ -16,12 +29,10 @@ def root():
 @app.get("/health/db")
 def health_db():
     try:
-        conn = get_db_connection()
-        cur = conn.cursor()
-        cur.execute("select 1;")
-        row = cur.fetchone()
-        cur.close()
-        conn.close()
+        with get_db_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("select 1;")
+                row = cur.fetchone()
 
         return {
             "status": "ok",
@@ -34,30 +45,19 @@ def health_db():
 @app.post("/components", response_model=ComponentOut)
 def create_component(component: ComponentCreate):
     try:
-        conn = get_db_connection()
-        cur = conn.cursor()
+        with get_db_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    insert into components (name, component_type, description)
+                    values (%s, %s, %s)
+                    returning id, name, component_type, description;
+                    """,
+                    (component.name, component.component_type, component.description),
+                )
+                row = cur.fetchone()
 
-        cur.execute(
-            """
-            insert into components (name, component_type, description)
-            values (%s, %s, %s)
-            returning id, name, component_type, description;
-            """,
-            (component.name, component.component_type, component.description),
-        )
-
-        row = cur.fetchone()
-        conn.commit()
-
-        cur.close()
-        conn.close()
-
-        return {
-            "id": row[0],
-            "name": row[1],
-            "component_type": row[2],
-            "description": row[3],
-        }
+        return component_row_to_dict(row)
 
     except Exception as e:
         error_text = str(e).lower()
@@ -70,33 +70,20 @@ def create_component(component: ComponentCreate):
 @app.get("/components", response_model=list[ComponentOut])
 def get_components():
     try:
-        conn = get_db_connection()
-        cur = conn.cursor()
-
-        cur.execute(
-            """
-            select id, name, component_type, description
-            from components
-            order by id
-            """
-        )
-
-        rows = cur.fetchall()
-
-        cur.close()
-        conn.close()
+        with get_db_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    select id, name, component_type, description
+                    from components
+                    order by id;
+                    """
+                )
+                rows = cur.fetchall()
 
         result = []
-
         for row in rows:
-            result.append(
-                {
-                    "id": row[0],
-                    "name": row[1],
-                    "component_type": row[2],
-                    "description": row[3],
-                }
-            )
+            result.append(component_row_to_dict(row))
 
         return result
 
@@ -112,51 +99,38 @@ def create_dependency(dependency: DependencyCreate):
         raise HTTPException(status_code=400, detail="dependency_type must be hard or soft")
 
     try:
-        conn = get_db_connection()
-        cur = conn.cursor()
+        with get_db_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "select id from components where id = %s;",
+                    (dependency.source_component_id,),
+                )
+                source_row = cur.fetchone()
 
-        cur.execute(
-            "select id from components where id = %s;",
-            (dependency.source_component_id,)
-        )
-        source_row = cur.fetchone()
+                cur.execute(
+                    "select id from components where id = %s;",
+                    (dependency.target_component_id,),
+                )
+                target_row = cur.fetchone()
 
-        cur.execute(
-            "select id from components where id = %s;",
-            (dependency.target_component_id,)
-        )
-        target_row = cur.fetchone()
+                if not source_row or not target_row:
+                    raise HTTPException(status_code=404, detail="one or both components do not exist")
 
-        if not source_row or not target_row:
-            cur.close()
-            conn.close()
-            raise HTTPException(status_code=404, detail="one or both components do not exist")
+                cur.execute(
+                    """
+                    insert into dependencies (source_component_id, target_component_id, dependency_type)
+                    values (%s, %s, %s)
+                    returning id, source_component_id, target_component_id, dependency_type;
+                    """,
+                    (
+                        dependency.source_component_id,
+                        dependency.target_component_id,
+                        dependency.dependency_type,
+                    ),
+                )
+                row = cur.fetchone()
 
-        cur.execute(
-            """
-            insert into dependencies (source_component_id, target_component_id, dependency_type)
-            values (%s, %s, %s)
-            returning id, source_component_id, target_component_id, dependency_type;
-            """,
-            (
-                dependency.source_component_id,
-                dependency.target_component_id,
-                dependency.dependency_type,
-            ),
-        )
-
-        row = cur.fetchone()
-        conn.commit()
-
-        cur.close()
-        conn.close()
-
-        return {
-            "id": row[0],
-            "source_component_id": row[1],
-            "target_component_id": row[2],
-            "dependency_type": row[3],
-        }
+        return dependency_row_to_dict(row)
 
     except HTTPException:
         raise
@@ -172,105 +146,75 @@ def create_dependency(dependency: DependencyCreate):
 @app.get("/dependencies", response_model=list[DependencyOut])
 def get_dependencies():
     try:
-        conn = get_db_connection()
-        cur = conn.cursor()
-        
-        cur.execute(
-            """
-            select id, source_component_id, target_component_id, dependency_type
-            from dependencies
-            order by id
-            """
-        )
-        
-        rows = cur.fetchall()
-        
-        cur.close()
-        conn.close()
-        
+        with get_db_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    select id, source_component_id, target_component_id, dependency_type
+                    from dependencies
+                    order by id;
+                    """
+                )
+                rows = cur.fetchall()
+
         result = []
         for row in rows:
-            result.append(
-                {
-                    "id": row[0],
-                    "source_component_id": row[1],
-                    "target_component_id": row[2],
-                    "dependency_type": row[3],
-                }
-            )
-            
+            result.append(dependency_row_to_dict(row))
+
         return result
-    
+
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"db error: {e}")
 
 @app.post("/analysis/run", response_model=AnalysisResultOut)
 def run_analysis(payload: AnalysisRunRequest):
     try:
-        conn = get_db_connection()
-        cur = conn.cursor()
-
-        cur.execute(
-            """
-            select id, name, component_type, description
-            from components
-            where id = %s;
-            """,
-            (payload.component_id,),
-        )
-        root_row = cur.fetchone()
-
-        if not root_row:
-            cur.close()
-            conn.close()
-            raise HTTPException(status_code=404, detail="component not found")
-
-        cur.execute(
-            """
-            select source_component_id, target_component_id
-            from dependencies
-            order by id;
-            """
-        )
-        dependency_rows = cur.fetchall()
-
-        graph = build_adjacency(dependency_rows)
-        affected_ids = collect_affected_ids(payload.component_id, graph)
-
-        affected_components = []
-
-        if affected_ids:
-            cur.execute(
-                """
-                select id, name, component_type, description
-                from components
-                where id = any(%s)
-                order by id;
-                """,
-                (affected_ids,),
-            )
-            affected_rows = cur.fetchall()
-
-            for row in affected_rows:
-                affected_components.append(
-                    {
-                        "id": row[0],
-                        "name": row[1],
-                        "component_type": row[2],
-                        "description": row[3],
-                    }
+        with get_db_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    select id, name, component_type, description
+                    from components
+                    where id = %s;
+                    """,
+                    (payload.component_id,),
                 )
+                root_row = cur.fetchone()
 
-        cur.close()
-        conn.close()
+                if not root_row:
+                    raise HTTPException(status_code=404, detail="component not found")
+
+                cur.execute(
+                    """
+                    select source_component_id, target_component_id
+                    from dependencies
+                    order by id;
+                    """
+                )
+                dependency_rows = cur.fetchall()
+
+                graph = build_adjacency(dependency_rows)
+                affected_ids = collect_affected_ids(payload.component_id, graph)
+
+                affected_components = []
+
+                if affected_ids:
+                    cur.execute(
+                        """
+                        select id, name, component_type, description
+                        from components
+                        where id = any(%s)
+                        order by id;
+                        """,
+                        (affected_ids,),
+                    )
+                    affected_rows = cur.fetchall()
+
+                    for row in affected_rows:
+                        affected_components.append(component_row_to_dict(row))
 
         return {
-            "root_component": {
-                "id": root_row[0],
-                "name": root_row[1],
-                "component_type": root_row[2],
-                "description": root_row[3],
-            },
+            "root_component": component_row_to_dict(root_row),
             "affected_components": affected_components,
             "affected_count": len(affected_components),
         }
