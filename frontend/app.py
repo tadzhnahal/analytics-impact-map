@@ -1,6 +1,6 @@
 import streamlit as st
 
-from api import get_components, run_analysis
+from api import get_components, get_dependencies, run_analysis
 
 st.set_page_config(page_title="Analytics Impact Map", layout="wide")
 st.title("Analytics Impact Map")
@@ -10,6 +10,12 @@ try:
     components = get_components()
 except Exception as e:
     st.error(f"failed to load components: {e}")
+    st.stop()
+
+try:
+    dependencies = get_dependencies()
+except Exception as e:
+    st.error(f"failed to load dependencies: {e}")
     st.stop()
 
 if not components:
@@ -30,6 +36,32 @@ for item in components:
     )
 
 st.table(table_data)
+
+component_map = {}
+for item in components:
+    component_map[item["id"]] = item
+
+st.subheader("Dependencies")
+
+dependency_table = []
+for item in dependencies:
+    source_component = component_map.get(item["source_component_id"])
+    target_component = component_map.get(item["target_component_id"])
+
+    dependency_table.append(
+        {
+            "source_id": item["source_component_id"],
+            "source_name": source_component["name"] if source_component else "unknown",
+            "target_id": item["target_component_id"],
+            "target_name": target_component["name"] if target_component else "unknown",
+            "dependency_type": item["dependency_type"],
+        }
+    )
+
+if dependency_table:
+    st.table(dependency_table)
+else:
+    st.info("No dependencies found")
 
 st.subheader("Run analysis")
 
