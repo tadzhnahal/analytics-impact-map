@@ -1,6 +1,8 @@
 import streamlit as st
+import streamlit.components.v1 as components_html
 
 from api import get_components, get_dependencies, run_analysis
+from graph_view import build_graph_html
 
 st.set_page_config(page_title="Analytics Impact Map", layout="wide")
 st.title("Analytics Impact Map")
@@ -62,6 +64,11 @@ if dependency_table:
     st.table(dependency_table)
 else:
     st.info("No dependencies found")
+
+st.subheader("Dependency map")
+
+graph_html = build_graph_html(components, dependencies)
+components_html.html(graph_html, height=560, scrolling=False)
 
 st.subheader("Run analysis")
 
