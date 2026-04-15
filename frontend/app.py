@@ -1,7 +1,7 @@
 import streamlit as st
 import streamlit.components.v1 as components_html
 
-from api import get_components, get_dependencies, run_analysis
+from api import get_components, get_dependencies, run_analysis, create_component
 from graph_view import build_graph_html
 
 st.set_page_config(page_title="Аналитическая карта зависимостей", layout="wide")
@@ -43,6 +43,32 @@ with legend_col_2:
 
 with legend_col_3:
     st.caption("Обычный узел - голубой")
+
+with st.expander("Добавить новый компонент"):
+    with st.form("create_component_form"):
+        new_component_name = st.text_input("Название компонента")
+        new_component_type = st.selectbox(
+            "Тип компонента",
+            ["source", "mart", "dashboard", "service", "report", "other"],
+        )
+        new_component_description = st.text_area("Описание", height=80)
+
+        create_component_submit = st.form_submit_button("Добавить компонент")
+
+    if create_component_submit:
+        if not new_component_name.strip():
+            st.error("Название компонента не должно быть пустым")
+        else:
+            try:
+                create_component(
+                    name=new_component_name.strip(),
+                    component_type=new_component_type,
+                    description=new_component_description.strip() or None,
+                )
+                st.success("Компонент успешно добавлен")
+                st.rerun()
+            except Exception as e:
+                st.error(f"Не удалось добавить компонент: {e}")
 
 if "analysis_result" not in st.session_state:
     st.session_state["analysis_result"] = None
