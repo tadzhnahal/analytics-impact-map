@@ -38,3 +38,14 @@ def create_component(name: str, component_type: str, description: str | None = N
     response = requests.post(f"{API_BASE_URL}/components", json=payload, timeout=10)
     response.raise_for_status()
     return response.json()
+
+def create_dependency(source_component_id: int, target_component_id: int, dependency_type: str = "hard"):
+    payload = {
+        "source_component_id": source_component_id,
+        "target_component_id": target_component_id,
+        "dependency_type": dependency_type,
+    }
+
+    response = requests.post(f"{API_BASE_URL}/dependencies", json=payload, timeout=10)
+    response.raise_for_status()
+    return response.json()
