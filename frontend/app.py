@@ -1,12 +1,12 @@
 import streamlit as st
 import streamlit.components.v1 as components_html
 
-from api import get_components, get_dependencies, run_analysis, create_component
+from api import get_components, get_dependencies, run_analysis, create_component, create_dependency
 from graph_view import build_graph_html
 
 st.set_page_config(page_title="Аналитическая карта зависимостей", layout="wide")
 st.title("Аналитическая карта зависимостей")
-st.caption("Карта показывает, как отказ одно узла влияет на связанные компоненты.")
+st.caption("Карта показывает, как отказ одного узла влияет на связанные компоненты.")
 
 with st.expander("Помощь"):
     st.markdown(
@@ -44,6 +44,21 @@ with legend_col_2:
 with legend_col_3:
     st.caption("Обычный узел - голубой")
 
+if "analysis_result" not in st.session_state:
+    st.session_state["analysis_result"] = None
+
+try:
+    components = get_components()
+except Exception as e:
+    st.error(f"Не удалось загрузить компоненты: {e}")
+    st.stop()
+
+try:
+    dependencies = get_dependencies()
+except Exception as e:
+    st.error(f"Не удалось загрузить зависимости: {e}")
+    st.stop()
+
 with st.expander("Добавить новый компонент"):
     with st.form("create_component_form"):
         new_component_name = st.text_input("Название компонента")
@@ -70,20 +85,51 @@ with st.expander("Добавить новый компонент"):
             except Exception as e:
                 st.error(f"Не удалось добавить компонент: {e}")
 
-if "analysis_result" not in st.session_state:
-    st.session_state["analysis_result"] = None
+with st.expander("Добавить новую зависимость"):
+    if len(components) < 2:
+        st.info("Для создания зависимости нужно минимум два компонента")
+    else:
+        dependency_component_options = {}
 
-try:
-    components = get_components()
-except Exception as e:
-    st.error(f"Не удалось загрузить компоненты: {e}")
-    st.stop()
+        for item in components:
+            label = f"{item['id']} — {item['name']} ({item['component_type']})"
+            dependency_component_options[label] = item["id"]
 
-try:
-    dependencies = get_dependencies()
-except Exception as e:
-    st.error(f"Не удалось загрузить зависимости: {e}")
-    st.stop()
+        with st.form("create_dependency_form"):
+            source_label = st.selectbox(
+                "Исходный компонент",
+                list(dependency_component_options.keys()),
+                key="dependency_source"
+            )
+            target_label = st.selectbox(
+                "Зависимый компонент",
+                list(dependency_component_options.keys()),
+                key="dependency_target"
+            )
+            new_dependency_type = st.selectbox(
+                "Тип зависимости",
+                ["hard", "soft"]
+            )
+
+            create_dependency_submit = st.form_submit_button("Добавить зависимость")
+
+        if create_dependency_submit:
+            source_id = dependency_component_options[source_label]
+            target_id = dependency_component_options[target_label]
+
+            if source_id == target_id:
+                st.error("Компонент не может зависеть сам от себя")
+            else:
+                try:
+                    create_dependency(
+                        source_component_id=source_id,
+                        target_component_id=target_id,
+                        dependency_type=new_dependency_type,
+                    )
+                    st.success("Зависимость успешно добавлена")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Не удалось добавить зависимость: {e}")
 
 if not components:
     st.warning("Компоненты пока не добавлены")
@@ -133,7 +179,7 @@ if st.button("Запустить анализ влияния"):
         st.session_state["analysis_result"] = run_analysis(selected_component_id)
     except Exception as e:
         st.session_state["analysis_result"] = None
-        st.error(f"Не удалось запустиьт анализ: {e}")
+        st.error(f"Не удалось запустить анализ: {e}")
 
 analysis_result = st.session_state["analysis_result"]
 
