@@ -8,6 +8,9 @@ st.set_page_config(page_title="Analytics Impact Map", layout="wide")
 st.title("Analytics Impact Map")
 st.write("Frontend MVP for impact analysis")
 
+if "analysis_result" not in st.session_state:
+    st.session_state["analysis_result"] = None
+
 try:
     components = get_components()
 except Exception as e:
@@ -65,11 +68,6 @@ if dependency_table:
 else:
     st.info("No dependencies found")
 
-st.subheader("Dependency map")
-
-graph_html = build_graph_html(components, dependencies)
-components_html.html(graph_html, height=560, scrolling=False)
-
 st.subheader("Run analysis")
 
 component_options = {}
@@ -86,42 +84,65 @@ selected_component_id = component_options[selected_label]
 
 if st.button("Run impact analysis"):
     try:
-        result = run_analysis(selected_component_id)
-
-        root_component = result["root_component"]
-        affected_components = result["affected_components"]
-        affected_count = result["affected_count"]
-
-        st.subheader("Analysis result")
-
-        st.write("Root component:")
-        st.write(
-            {
-                "id": root_component["id"],
-                "name": root_component["name"],
-                "type": root_component["component_type"],
-                "description": root_component["description"],
-            }
-        )
-
-        st.write(f"Affected components: {affected_count}")
-
-        if affected_components:
-            affected_table = []
-
-            for item in affected_components:
-                affected_table.append(
-                    {
-                        "id": item["id"],
-                        "name": item["name"],
-                        "type": item["component_type"],
-                        "description": item["description"],
-                    }
-                )
-
-            st.table(affected_table)
-        else:
-            st.info("No affected components found")
-
+        st.session_state["analysis_result"] = run_analysis(selected_component_id)
     except Exception as e:
+        st.session_state["analysis_result"] = None
         st.error(f"failed to run analysis: {e}")
+
+analysis_result = st.session_state["analysis_result"]
+
+root_id = None
+affected_ids = []
+
+if analysis_result:
+    root_id = analysis_result["root_component"]["id"]
+    affected_ids = []
+
+    for item in analysis_result["affected_components"]:
+        affected_ids.append(item["id"])
+
+st.subheader("Dependency map")
+
+graph_html = build_graph_html(
+    components,
+    dependencies,
+    root_id=root_id,
+    affected_ids=affected_ids,
+)
+components_html.html(graph_html, height=560, scrolling=False)
+
+if analysis_result:
+    root_component = analysis_result["root_component"]
+    affected_components = analysis_result["affected_components"]
+    affected_count = analysis_result["affected_count"]
+
+    st.subheader("Analysis result")
+
+    st.write("Root component:")
+    st.write(
+        {
+            "id": root_component["id"],
+            "name": root_component["name"],
+            "type": root_component["component_type"],
+            "description": root_component["description"],
+        }
+    )
+
+    st.write(f"Affected components: {affected_count}")
+
+    if affected_components:
+        affected_table = []
+
+        for item in affected_components:
+            affected_table.append(
+                {
+                    "id": item["id"],
+                    "name": item["name"],
+                    "type": item["component_type"],
+                    "description": item["description"],
+                }
+            )
+
+        st.table(affected_table)
+    else:
+        st.info("No affected components found")
