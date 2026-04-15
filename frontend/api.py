@@ -27,3 +27,14 @@ def run_analysis(component_id: int):
     )
     response.raise_for_status()
     return response.json()
+
+def create_component(name: str, component_type: str, description: str | None = None):
+    payload = {
+        "name": name,
+        "component_type": component_type,
+        "description": description,
+    }
+
+    response = requests.post(f"{API_BASE_URL}/components", json=payload, timeout=10)
+    response.raise_for_status()
+    return response.json()
