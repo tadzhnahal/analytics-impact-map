@@ -1,7 +1,8 @@
 import streamlit as st
 import streamlit.components.v1 as components_html
 
-from api import get_components, get_dependencies, run_analysis, create_component, create_dependency
+from api import (get_components, get_dependencies, run_analysis,
+                 create_component, create_dependency, delete_component_by_id,)
 from graph_view import build_graph_html
 
 st.set_page_config(
@@ -60,6 +61,38 @@ with st.sidebar:
                     st.rerun()
                 except Exception as e:
                     st.error(f"Не удалось добавить компонент: {e}")
+
+    with st.expander("Удалить компонент"):
+        if components:
+            delete_component_options = {}
+
+            for item in components:
+                label = f"{item['id']} — {item['name']} ({item['component_type']})"
+                delete_component_options[label] = item["id"]
+
+            with st.form("delete_component_form"):
+                delete_component_label = st.selectbox(
+                    "Компонент для удаления",
+                    list(delete_component_options.keys()),
+                )
+                confirm_delete_component = st.checkbox("Я понимаю, что удаление нельзя отменить")
+                delete_component_submit = st.form_submit_button("Удалить компонент")
+
+        if delete_component_submit:
+            component_id_to_delete = delete_component_options[delete_component_label]
+
+            if not confirm_delete_component:
+                st.error("Подтвердите удаление компонента")
+            else:
+                try:
+                    delete_component_by_id(component_id_to_delete)
+                    st.session_state["analysis_result"] = None
+                    st.success("Вы успешно удалили компонент")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Не удалось удалить компонент: {e}")
+        else:
+            st.info("Сначала добавьте хотя бы один компонент")
 
     with st.expander("Добавить новую зависимость"):
         if len(components) < 2:
