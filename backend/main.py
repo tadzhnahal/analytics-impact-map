@@ -90,6 +90,43 @@ def get_components():
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"db error: {e}")
 
+@app.delete("/components/{component_id}")
+def delete_component(component_id: int):
+    try:
+        with get_db_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    select id, name
+                    from components
+                    where id = %s;
+                    """,
+                    (component_id,),
+                )
+                row = cur.fetchone()
+
+                if not row:
+                    raise HTTPException(status_code=404, detail="component not found")
+
+                cur.execute(
+                    """
+                    delete from components
+                    where id = %s;
+                    """,
+                    (component_id,),
+                )
+        return {
+            "message": "component deleted",
+            "deleted_component_id": row[0],
+            "deleted_component_name": row[1],
+        }
+
+    except HTTPException:
+        raise
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"db error: {e}")
+
 @app.post("/dependencies", response_model=DependencyOut)
 def create_dependency(dependency: DependencyCreate):
     if dependency.source_component_id == dependency.target_component_id:
