@@ -203,6 +203,46 @@ def get_dependencies():
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"db error: {e}")
 
+@app.delete("/dependencies/{dependency_id}")
+def delete_dependency(dependency_id: int):
+    try:
+        with get_db_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    select id, source_component_id, target_component_id, dependency_type
+                    from dependencies
+                    where id = %s
+                    """,
+                    (dependency_id,),
+                )
+                row = cur.fetchone()
+
+                if not row:
+                    raise HTTPException(status_code=404, detail="dependency not found")
+
+                cur.execute(
+                    """
+                    delete from dependencies
+                    where id = %s;
+                    """,
+                    (dependency_id,),
+                )
+
+        return {
+            "message": "dependency deleted",
+            "deleted_dependency_id": row[0],
+            "source_component_id": row[1],
+            "target_component_id": row[2],
+            "dependency_type": row[3],
+        }
+
+    except HTTPException:
+        raise
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"db error: {e}")
+
 @app.post("/analysis/run", response_model=AnalysisResultOut)
 def run_analysis(payload: AnalysisRunRequest):
     try:
