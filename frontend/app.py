@@ -2,7 +2,8 @@ import streamlit as st
 import streamlit.components.v1 as components_html
 
 from api import (get_components, get_dependencies, run_analysis,
-                 create_component, create_dependency, delete_component_by_id,)
+                 create_component, create_dependency, delete_component_by_id,
+                 delete_dependency_by_id,)
 from graph_view import build_graph_html
 
 st.set_page_config(
@@ -78,19 +79,19 @@ with st.sidebar:
                 confirm_delete_component = st.checkbox("Я понимаю, что удаление нельзя отменить")
                 delete_component_submit = st.form_submit_button("Удалить компонент")
 
-        if delete_component_submit:
-            component_id_to_delete = delete_component_options[delete_component_label]
+            if delete_component_submit:
+                component_id_to_delete = delete_component_options[delete_component_label]
 
-            if not confirm_delete_component:
-                st.error("Подтвердите удаление компонента")
-            else:
-                try:
-                    delete_component_by_id(component_id_to_delete)
-                    st.session_state["analysis_result"] = None
-                    st.success("Вы успешно удалили компонент")
-                    st.rerun()
-                except Exception as e:
-                    st.error(f"Не удалось удалить компонент: {e}")
+                if not confirm_delete_component:
+                    st.error("Подтвердите удаление компонента")
+                else:
+                    try:
+                        delete_component_by_id(component_id_to_delete)
+                        st.session_state["analysis_result"] = None
+                        st.success("Вы успешно удалили компонент")
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Не удалось удалить компонент: {e}")
         else:
             st.info("Сначала добавьте хотя бы один компонент")
 
@@ -140,6 +141,44 @@ with st.sidebar:
                     except Exception as e:
                         st.error(f"Не удалось добавить зависимость: {e}")
 
+    with st.expander("Удалить зависимость"):
+        if dependencies:
+            delete_dependency_options = {}
+
+            for item in dependencies:
+                source_component = component_map.get(item["source_component_id"])
+                target_component = component_map.get(item["target_component_id"])
+
+                source_name = source_component["name"] if source_component else "Неизвестный компонент"
+                target_name = target_component["name"] if target_component else "Неизвестный компонент"
+
+                label = f"{item['id']} — {source_name} -> {target_name} ({item['dependency_type']})"
+                delete_dependency_options[label] = item["id"]
+
+            with st.form("delete_dependency_form"):
+                delete_dependency_label = st.selectbox(
+                    "Выберите зависимость для удаления",
+                    list(delete_dependency_options.keys()),
+                )
+                confirm_delete_dependency = st.checkbox("Я понимаю, что удаление зависимости нельзя отменить")
+                delete_dependency_submit = st.form_submit_button("Удалить зависимость")
+
+            if delete_dependency_submit:
+                dependency_id_to_delete = delete_dependency_options[delete_dependency_label]
+
+                if not confirm_delete_dependency:
+                    st.error("Подтвердите удаление")
+                else:
+                    try:
+                        delete_dependency_by_id(dependency_id_to_delete)
+                        st.session_state["analysis_result"] = None
+                        st.success("Вы успешно удалили зависимость")
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Не удалось удалить зависимость: {e}")
+        else:
+            st.info("Сначала добавьте хотя бы одну зависимость")
+
     with st.expander("Запустить анализ влияния"):
         if components:
             component_options = {}
@@ -184,7 +223,7 @@ with st.sidebar:
             2. Запустите анализ.
             3. Посмотрите подсветку на карте и список затронутых компонентов.
 
-            **Цвета на карте**
+            **Что обозначают цвета узлов**
             - оранжевый: выбранный корневой узел;
             - красный: затронутый узел;
             - голубой: обычный узел.
@@ -296,9 +335,9 @@ with st.expander("Показать зависимости"):
         dependency_table.append(
             {
                 "source_id": item["source_component_id"],
-                "source_name": source_component["name"] if source_component else "неизвестный",
+                "source_name": source_component["name"] if source_component else "Неизвестный компонент",
                 "target_id": item["target_component_id"],
-                "target_name": target_component["name"] if target_component else "неизвестный",
+                "target_name": target_component["name"] if target_component else "Неизвестный компонент",
                 "dependency_type": item["dependency_type"],
             }
         )
