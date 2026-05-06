@@ -59,3 +59,14 @@ def delete_dependency_by_id(dependency_id: int):
     response = requests.delete(f"{API_BASE_URL}/dependencies/{dependency_id}", timeout=10)
     response.raise_for_status()
     return response.json()
+
+def update_component_by_id(component_id: int, name: str, description: str | None = None):
+    payload = {
+        "name": name,
+        "component_type": component_id,
+        "description": description,
+    }
+
+    response = requests.put(f"{API_BASE_URL}/components/{component_id}", json=payload, timeout=10)
+    response.raise_for_status()
+    return response.json()
