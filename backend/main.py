@@ -90,6 +90,54 @@ def get_components():
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"db error: {e}")
 
+@app.put("/components/{component_id}", response_model=ComponentOut)
+def update_component(component_id: int, component: ComponentCreate):
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor()
+
+        cur.execute(
+            """
+            update components
+            set name = %s,
+                component_type = %s,
+                description = %s
+            where id = %s
+            returning id, name, component_type, description;
+            """,
+            (component.name, component.component_type, component.description, component_id),
+        )
+
+        row = cur.fetchone()
+
+        if not row:
+            cur.close()
+            conn.close()
+            raise HTTPException(status_code=404, detail="component not found")
+
+        conn.commit()
+
+        cur.close()
+        conn.close()
+
+        return {
+            "id": row[0],
+            "name": row[1],
+            "component_type": row[2],
+            "description": row[3],
+        }
+
+    except HTTPException:
+        raise
+
+    except Exception as e:
+        error_text = str(e).lower()
+
+        if "duplicate key value" in error_text:
+            raise HTTPException(status_code=400, detail="component with this name already exists")
+
+        raise HTTPException(status_code=500, detail=f"db error: {e}")
+
 @app.delete("/components/{component_id}")
 def delete_component(component_id: int):
     try:
