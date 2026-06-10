@@ -251,6 +251,87 @@ def get_dependencies():
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"db error: {e}")
 
+@app.put("/dependencies/{dependency_id}", response_model=DependencyOut)
+def update_dependency(dependency_id: int, dependency: DependencyCreate):
+    if dependency.source_component_id == dependency.target_component_id:
+        raise HTTPException(status_code=400, detail="component cannot depend on itself")
+
+    if dependency.dependency_type not in ["hard", "soft"]:
+        raise HTTPException(status_code=400, detail="dependency_type must be hard or soft")
+
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor()
+
+        cur.execute(
+            "select id from dependencies where id = %s;",
+            (dependency_id,),
+        )
+        dependency_row = cur.fetchone()
+
+        if not dependency_row:
+            cur.close()
+            conn.close()
+            raise HTTPException(status_code=404, detail="dependency not found")
+
+        cur.execute(
+            "select id from components where id = %s;",
+            (dependency.source_component_id,),
+        )
+        source_row = cur.fetchone()
+
+        cur.execute(
+            "select id from components where id = %s;",
+            (dependency.target_component_id,),
+        )
+        target_row = cur.fetchone()
+
+        if not source_row or not target_row:
+            cur.close()
+            conn.close()
+            raise HTTPException(status_code=404, detail="one or both components do not exist")
+
+        cur.execute(
+            """
+            update dependencies
+            set source_component_id = %s,
+                target_component_id = %s,
+                dependency_type = %s
+            where id = %s
+            returning id, source_component_id, target_component_id, dependency_type;
+            """,
+            (
+                dependency.source_component_id,
+                dependency.target_component_id,
+                dependency.dependency_type,
+                dependency_id,
+            ),
+        )
+
+        row = cur.fetchone()
+        conn.commit()
+
+        cur.close()
+        conn.close()
+
+        return {
+            "id": row[0],
+            "source_component_id": row[1],
+            "target_component_id": row[2],
+            "dependency_type": row[3],
+        }
+
+    except HTTPException:
+        raise
+
+    except Exception as e:
+        error_text = str(e).lower()
+
+        if "duplicate key value" in error_text:
+            raise HTTPException(status_code=400, detail="this dependency already exists")
+
+        raise HTTPException(status_code=500, detail=f"db error: {e}")
+
 @app.delete("/dependencies/{dependency_id}")
 def delete_dependency(dependency_id: int):
     try:
