@@ -92,7 +92,11 @@ body,
   background: #ffedd5;
 }
 
-.graph-create-menu {
+.graph-tool-danger {
+  color: #b91c1c;
+}
+
+.graph-popup-menu {
   position: absolute;
   top: 44px;
   right: 0;
@@ -122,6 +126,18 @@ body,
 .graph-menu-tabs .graph-menu-tab-active {
   border-color: #2563eb;
   background: #dbeafe;
+}
+
+.graph-menu-title {
+  color: #0f172a;
+  font-size: 14px;
+  font-weight: 800;
+}
+
+.graph-menu-empty {
+  color: #334155;
+  font-size: 13px;
+  line-height: 1.4;
 }
 
 .graph-menu-form {
@@ -171,6 +187,18 @@ body,
 .graph-menu-submit:disabled {
   background: #94a3b8;
   cursor: not-allowed;
+}
+
+.graph-menu-delete {
+  background: #dc2626;
+}
+
+.graph-delete-text {
+  padding: 8px;
+  border-radius: 8px;
+  background: #fee2e2;
+  color: #7f1d1d;
+  font-size: 13px;
 }
 
 .graph-mode-badge {

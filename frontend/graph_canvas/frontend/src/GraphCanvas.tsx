@@ -144,6 +144,14 @@ function getSafeNodeId(rawNodes: RawNode[], currentValue: string) {
   return rawNodes[0].id;
 }
 
+function getSelectedNodeIds(nodes: Node[]) {
+  return nodes.filter((node) => node.selected).map((node) => node.id);
+}
+
+function getSelectedEdgeIds(edges: Edge[]) {
+  return edges.filter((edge) => edge.selected).map((edge) => edge.id);
+}
+
 function GraphCanvas(props: ComponentProps) {
   const rawNodes = (props.args["nodes"] ?? []) as RawNode[];
   const rawEdges = (props.args["edges"] ?? []) as RawEdge[];
@@ -157,8 +165,14 @@ function GraphCanvas(props: ComponentProps) {
   const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdges);
 
-  const [menuOpen, setMenuOpen] = useState(false);
-  const [menuTab, setMenuTab] = useState<"component" | "dependency">("component");
+  const [createMenuOpen, setCreateMenuOpen] = useState(false);
+  const [createMenuTab, setCreateMenuTab] = useState<"component" | "dependency">("component");
+
+  const [editMenuOpen, setEditMenuOpen] = useState(false);
+  const [editTargetType, setEditTargetType] = useState<"component" | "dependency" | "none">("none");
+
+  const [deleteMenuOpen, setDeleteMenuOpen] = useState(false);
+  const [deleteTargetType, setDeleteTargetType] = useState<"component" | "dependency" | "none">("none");
 
   const [componentName, setComponentName] = useState("");
   const [componentType, setComponentType] = useState("source");
@@ -167,6 +181,19 @@ function GraphCanvas(props: ComponentProps) {
   const [sourceNodeId, setSourceNodeId] = useState("");
   const [targetNodeId, setTargetNodeId] = useState("");
   const [dependencyType, setDependencyType] = useState("hard");
+
+  const [editComponentId, setEditComponentId] = useState("");
+  const [editComponentName, setEditComponentName] = useState("");
+  const [editComponentType, setEditComponentType] = useState("source");
+  const [editComponentDescription, setEditComponentDescription] = useState("");
+
+  const [editDependencyId, setEditDependencyId] = useState("");
+  const [editSourceNodeId, setEditSourceNodeId] = useState("");
+  const [editTargetNodeId, setEditTargetNodeId] = useState("");
+  const [editDependencyType, setEditDependencyType] = useState("hard");
+
+  const [deleteTargetId, setDeleteTargetId] = useState("");
+  const [deleteTargetLabel, setDeleteTargetLabel] = useState("");
 
   const [spacePressed, setSpacePressed] = useState(false);
 
@@ -204,6 +231,8 @@ function GraphCanvas(props: ComponentProps) {
 
     setSourceNodeId((currentValue) => getSafeNodeId(rawNodes, currentValue));
     setTargetNodeId((currentValue) => getSafeNodeId(rawNodes, currentValue));
+    setEditSourceNodeId((currentValue) => getSafeNodeId(rawNodes, currentValue));
+    setEditTargetNodeId((currentValue) => getSafeNodeId(rawNodes, currentValue));
   }, [rawNodes, rawEdges, layoutVersion, setNodes, setEdges]);
 
   useEffect(() => {
@@ -302,11 +331,11 @@ function GraphCanvas(props: ComponentProps) {
     [sendEvent]
   );
 
-  const handleSelectionChange = useCallback((selectedNodes: Node[], selectedEdges: Edge[]) => {
-    selectedNodeIdsRef.current = selectedNodes.map((node) => node.id);
-    selectedEdgeIdsRef.current = selectedEdges.map((edge) => edge.id);
-    selectionChangedRef.current = true;
-  }, []);
+  const closeMenus = () => {
+    setCreateMenuOpen(false);
+    setEditMenuOpen(false);
+    setDeleteMenuOpen(false);
+  };
 
   const createComponent = () => {
     const cleanName = componentName.trim();
@@ -323,7 +352,7 @@ function GraphCanvas(props: ComponentProps) {
 
     setComponentName("");
     setComponentDescription("");
-    setMenuOpen(false);
+    closeMenus();
   };
 
   const createDependency = () => {
@@ -337,8 +366,143 @@ function GraphCanvas(props: ComponentProps) {
       dependency_type: dependencyType
     });
 
-    setMenuOpen(false);
+    closeMenus();
   };
+
+  const openEditMenu = () => {
+    const selectedNodeIds = getSelectedNodeIds(latestNodesRef.current);
+    const selectedEdgeIds = getSelectedEdgeIds(latestEdgesRef.current);
+
+    setCreateMenuOpen(false);
+    setDeleteMenuOpen(false);
+
+    if (selectedNodeIds.length === 1 && selectedEdgeIds.length === 0) {
+      const selectedNode = rawNodes.find((node) => node.id === selectedNodeIds[0]);
+
+      if (!selectedNode) {
+        return;
+      }
+
+      setEditTargetType("component");
+      setEditComponentId(selectedNode.id);
+      setEditComponentName(selectedNode.label);
+      setEditComponentType(selectedNode.node_type || "other");
+      setEditComponentDescription(selectedNode.description || "");
+      setEditMenuOpen(true);
+      return;
+    }
+
+    if (selectedEdgeIds.length === 1 && selectedNodeIds.length === 0) {
+      const selectedEdge = rawEdges.find((edge) => edge.id === selectedEdgeIds[0]);
+
+      if (!selectedEdge) {
+        return;
+      }
+
+      setEditTargetType("dependency");
+      setEditDependencyId(selectedEdge.id);
+      setEditSourceNodeId(selectedEdge.source);
+      setEditTargetNodeId(selectedEdge.target);
+      setEditDependencyType(selectedEdge.dependency_type || "hard");
+      setEditMenuOpen(true);
+      return;
+    }
+
+    setEditTargetType("none");
+    setEditMenuOpen(true);
+  };
+
+  const updateComponent = () => {
+    const cleanName = editComponentName.trim();
+
+    if (!editComponentId || !cleanName) {
+      return;
+    }
+
+    sendSimpleEvent("update_component", "toolbar", [editComponentId], [], {
+      component_id: editComponentId,
+      name: cleanName,
+      component_type: editComponentType,
+      description: editComponentDescription.trim()
+    });
+
+    closeMenus();
+  };
+
+  const updateDependency = () => {
+    if (!editDependencyId || !editSourceNodeId || !editTargetNodeId) {
+      return;
+    }
+
+    if (editSourceNodeId === editTargetNodeId) {
+      return;
+    }
+
+    sendSimpleEvent("update_dependency", "toolbar", [], [editDependencyId], {
+      dependency_id: editDependencyId,
+      source_component_id: editSourceNodeId,
+      target_component_id: editTargetNodeId,
+      dependency_type: editDependencyType
+    });
+
+    closeMenus();
+  };
+
+  const openDeleteMenu = () => {
+    const selectedNodeIds = getSelectedNodeIds(latestNodesRef.current);
+    const selectedEdgeIds = getSelectedEdgeIds(latestEdgesRef.current);
+
+    setCreateMenuOpen(false);
+    setEditMenuOpen(false);
+
+    if (selectedNodeIds.length === 1 && selectedEdgeIds.length === 0) {
+      const selectedNode = rawNodes.find((node) => node.id === selectedNodeIds[0]);
+
+      setDeleteTargetType("component");
+      setDeleteTargetId(selectedNodeIds[0]);
+      setDeleteTargetLabel(selectedNode ? selectedNode.label : selectedNodeIds[0]);
+      setDeleteMenuOpen(true);
+      return;
+    }
+
+    if (selectedEdgeIds.length === 1 && selectedNodeIds.length === 0) {
+      const selectedEdge = rawEdges.find((edge) => edge.id === selectedEdgeIds[0]);
+
+      setDeleteTargetType("dependency");
+      setDeleteTargetId(selectedEdgeIds[0]);
+      setDeleteTargetLabel(selectedEdge ? `${selectedEdge.source} -> ${selectedEdge.target}` : selectedEdgeIds[0]);
+      setDeleteMenuOpen(true);
+      return;
+    }
+
+    setDeleteTargetType("none");
+    setDeleteTargetId("");
+    setDeleteTargetLabel("");
+    setDeleteMenuOpen(true);
+  };
+
+  const deleteSelectedObject = () => {
+    if (deleteTargetType === "component") {
+      sendSimpleEvent("delete_component", "toolbar", [deleteTargetId], [], {
+        component_id: deleteTargetId
+      });
+      closeMenus();
+      return;
+    }
+
+    if (deleteTargetType === "dependency") {
+      sendSimpleEvent("delete_dependency", "toolbar", [], [deleteTargetId], {
+        dependency_id: deleteTargetId
+      });
+      closeMenus();
+    }
+  };
+
+  const handleSelectionChange = useCallback((selectedNodes: Node[], selectedEdges: Edge[]) => {
+    selectedNodeIdsRef.current = selectedNodes.map((node) => node.id);
+    selectedEdgeIdsRef.current = selectedEdges.map((edge) => edge.id);
+    selectionChangedRef.current = true;
+  }, []);
 
   return (
     <div className={spacePressed ? "graph-canvas-shell graph-space-mode" : "graph-canvas-shell"} style={{ height }}>
@@ -350,9 +514,21 @@ function GraphCanvas(props: ComponentProps) {
         <button
           className="graph-tool-button"
           title="Создать компонент или связь"
-          onClick={() => setMenuOpen(!menuOpen)}
+          onClick={() => {
+            setCreateMenuOpen(!createMenuOpen);
+            setEditMenuOpen(false);
+            setDeleteMenuOpen(false);
+          }}
         >
           +
+        </button>
+
+        <button
+          className={editMenuOpen ? "graph-tool-button graph-tool-active" : "graph-tool-button"}
+          title="Редактировать выбранный объект"
+          onClick={openEditMenu}
+        >
+          ✎
         </button>
 
         <button
@@ -371,24 +547,32 @@ function GraphCanvas(props: ComponentProps) {
           ↻
         </button>
 
-        {menuOpen && (
-          <div className="graph-create-menu">
+        <button
+          className={deleteMenuOpen ? "graph-tool-button graph-tool-danger graph-tool-active" : "graph-tool-button graph-tool-danger"}
+          title="Удалить выбранный объект"
+          onClick={openDeleteMenu}
+        >
+          ×
+        </button>
+
+        {createMenuOpen && (
+          <div className="graph-popup-menu">
             <div className="graph-menu-tabs">
               <button
-                className={menuTab === "component" ? "graph-menu-tab-active" : ""}
-                onClick={() => setMenuTab("component")}
+                className={createMenuTab === "component" ? "graph-menu-tab-active" : ""}
+                onClick={() => setCreateMenuTab("component")}
               >
                 Компонент
               </button>
               <button
-                className={menuTab === "dependency" ? "graph-menu-tab-active" : ""}
-                onClick={() => setMenuTab("dependency")}
+                className={createMenuTab === "dependency" ? "graph-menu-tab-active" : ""}
+                onClick={() => setCreateMenuTab("dependency")}
               >
                 Связь
               </button>
             </div>
 
-            {menuTab === "component" && (
+            {createMenuTab === "component" && (
               <div className="graph-menu-form">
                 <label>
                   Название
@@ -433,7 +617,7 @@ function GraphCanvas(props: ComponentProps) {
               </div>
             )}
 
-            {menuTab === "dependency" && (
+            {createMenuTab === "dependency" && (
               <div className="graph-menu-form">
                 <label>
                   Откуда
@@ -486,6 +670,142 @@ function GraphCanvas(props: ComponentProps) {
             )}
           </div>
         )}
+
+        {editMenuOpen && (
+          <div className="graph-popup-menu">
+            {editTargetType === "none" && (
+              <div className="graph-menu-empty">
+                Выберите один компонент или одну связь.
+              </div>
+            )}
+
+            {editTargetType === "component" && (
+              <div className="graph-menu-form">
+                <div className="graph-menu-title">Редактировать компонент</div>
+
+                <label>
+                  Название
+                  <input
+                    value={editComponentName}
+                    onChange={(event) => setEditComponentName(event.target.value)}
+                  />
+                </label>
+
+                <label>
+                  Тип
+                  <select
+                    value={editComponentType}
+                    onChange={(event) => setEditComponentType(event.target.value)}
+                  >
+                    <option value="source">source</option>
+                    <option value="mart">mart</option>
+                    <option value="dashboard">dashboard</option>
+                    <option value="service">service</option>
+                    <option value="report">report</option>
+                    <option value="other">other</option>
+                  </select>
+                </label>
+
+                <label>
+                  Описание
+                  <textarea
+                    value={editComponentDescription}
+                    onChange={(event) => setEditComponentDescription(event.target.value)}
+                  />
+                </label>
+
+                <button
+                  className="graph-menu-submit"
+                  type="button"
+                  onClick={updateComponent}
+                >
+                  Сохранить
+                </button>
+              </div>
+            )}
+
+            {editTargetType === "dependency" && (
+              <div className="graph-menu-form">
+                <div className="graph-menu-title">Редактировать связь</div>
+
+                <label>
+                  Откуда
+                  <select
+                    value={editSourceNodeId}
+                    onChange={(event) => setEditSourceNodeId(event.target.value)}
+                  >
+                    {rawNodes.map((node) => (
+                      <option key={node.id} value={node.id}>
+                        {node.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+
+                <label>
+                  Куда
+                  <select
+                    value={editTargetNodeId}
+                    onChange={(event) => setEditTargetNodeId(event.target.value)}
+                  >
+                    {rawNodes.map((node) => (
+                      <option key={node.id} value={node.id}>
+                        {node.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+
+                <label>
+                  Тип
+                  <select
+                    value={editDependencyType}
+                    onChange={(event) => setEditDependencyType(event.target.value)}
+                  >
+                    <option value="hard">hard</option>
+                    <option value="soft">soft</option>
+                  </select>
+                </label>
+
+                <button
+                  className="graph-menu-submit"
+                  type="button"
+                  onClick={updateDependency}
+                  disabled={editSourceNodeId === editTargetNodeId}
+                >
+                  Сохранить
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+
+        {deleteMenuOpen && (
+          <div className="graph-popup-menu">
+            {deleteTargetType === "none" && (
+              <div className="graph-menu-empty">
+                Выберите один компонент или одну связь.
+              </div>
+            )}
+
+            {deleteTargetType !== "none" && (
+              <div className="graph-menu-form">
+                <div className="graph-menu-title">Удалить объект</div>
+                <div className="graph-delete-text">
+                  {deleteTargetType === "component" ? "Компонент" : "Связь"}: {deleteTargetLabel}
+                </div>
+
+                <button
+                  className="graph-menu-submit graph-menu-delete"
+                  type="button"
+                  onClick={deleteSelectedObject}
+                >
+                  Удалить
+                </button>
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       {analysisMode && (
@@ -523,6 +843,7 @@ function GraphCanvas(props: ComponentProps) {
             return;
           }
 
+          closeMenus();
           sendSimpleEvent("pane_click", "pane", [], []);
         }}
         onNodeClick={(event, node) => {
@@ -585,3 +906,4 @@ function GraphCanvas(props: ComponentProps) {
 }
 
 export default GraphCanvas;
+
