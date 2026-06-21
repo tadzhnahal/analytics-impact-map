@@ -1,5 +1,6 @@
 from pyvis.network import Network
 
+
 def get_node_color(component_id, root_id=None, affected_ids=None):
     affected_ids = affected_ids or []
 
@@ -11,6 +12,7 @@ def get_node_color(component_id, root_id=None, affected_ids=None):
 
     return "#8ecae6"
 
+
 def build_graph_html(components, dependencies, root_id=None, affected_ids=None):
     net = Network(height="520px", width="100%", directed=True)
 
@@ -18,14 +20,38 @@ def build_graph_html(components, dependencies, root_id=None, affected_ids=None):
         """
         var options = {
           "layout": {
-            "hierarchical": {
-              "enabled": true,
-              "direction": "LR",
-              "sortMethod": "directed"
-            }
+            "improvedLayout": true
           },
           "physics": {
-            "enabled": false
+            "enabled": true,
+            "solver": "forceAtlas2Based",
+            "forceAtlas2Based": {
+              "gravitationalConstant": -45,
+              "centralGravity": 0.01,
+              "springLength": 150,
+              "springConstant": 0.08,
+              "damping": 0.4,
+              "avoidOverlap": 0.8
+            },
+            "stabilization": {
+              "enabled": true,
+              "iterations": 120,
+              "updateInterval": 20
+            }
+          },
+          "interaction": {
+            "hover": true,
+            "dragNodes": true,
+            "dragView": true,
+            "zoomView": true,
+            "tooltipDelay": 120
+          },
+          "nodes": {
+            "shape": "dot",
+            "size": 22,
+            "font": {
+              "size": 16
+            }
           },
           "edges": {
             "arrows": {
@@ -33,7 +59,14 @@ def build_graph_html(components, dependencies, root_id=None, affected_ids=None):
                 "enabled": true
               }
             },
-            "smooth": false
+            "smooth": {
+              "enabled": true,
+              "type": "dynamic"
+            },
+            "font": {
+              "size": 12,
+              "align": "middle"
+            }
           }
         }
         """
