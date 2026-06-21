@@ -2,3 +2,4 @@ streamlit
 requests
 python-dotenv
 pyvis
+streamlit-agraph==0.0.45

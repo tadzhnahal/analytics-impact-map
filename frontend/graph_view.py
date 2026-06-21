@@ -1,4 +1,4 @@
-from pyvis.network import Network
+from streamlit_agraph import agraph, Node, Edge, Config
 
 
 def get_node_color(component_id, root_id=None, affected_ids=None):
@@ -13,70 +13,11 @@ def get_node_color(component_id, root_id=None, affected_ids=None):
     return "#8ecae6"
 
 
-def build_graph_html(components, dependencies, root_id=None, affected_ids=None):
-    net = Network(height="520px", width="100%", directed=True)
-
-    net.set_options(
-        """
-        var options = {
-          "layout": {
-            "improvedLayout": true
-          },
-          "physics": {
-            "enabled": true,
-            "solver": "forceAtlas2Based",
-            "forceAtlas2Based": {
-              "gravitationalConstant": -45,
-              "centralGravity": 0.01,
-              "springLength": 150,
-              "springConstant": 0.08,
-              "damping": 0.4,
-              "avoidOverlap": 0.8
-            },
-            "stabilization": {
-              "enabled": true,
-              "iterations": 120,
-              "updateInterval": 20
-            }
-          },
-          "interaction": {
-            "hover": true,
-            "dragNodes": true,
-            "dragView": true,
-            "zoomView": true,
-            "tooltipDelay": 120
-          },
-          "nodes": {
-            "shape": "dot",
-            "size": 22,
-            "font": {
-              "size": 16
-            }
-          },
-          "edges": {
-            "arrows": {
-              "to": {
-                "enabled": true
-              }
-            },
-            "smooth": {
-              "enabled": true,
-              "type": "dynamic"
-            },
-            "font": {
-              "size": 12,
-              "align": "middle"
-            }
-          }
-        }
-        """
-    )
-
+def build_graph_nodes(components, root_id=None, affected_ids=None):
+    nodes = []
     affected_ids = affected_ids or []
 
     for item in components:
-        description = item["description"] if item["description"] else "-"
-        title = f"type: {item['component_type']}<br>description: {description}"
         color = get_node_color(
             item["id"],
             root_id=root_id,
@@ -84,26 +25,62 @@ def build_graph_html(components, dependencies, root_id=None, affected_ids=None):
         )
 
         if item["id"] == root_id:
-            border_width = 3
+            size = 34
         elif item["id"] in affected_ids:
-            border_width = 2
+            size = 30
         else:
-            border_width = 1
+            size = 25
 
-        net.add_node(
-            item["id"],
+        node = Node(
+            id=str(item["id"]),
             label=item["name"],
-            title=title,
+            size=size,
             color=color,
-            borderWidth=border_width,
         )
+
+        nodes.append(node)
+
+    return nodes
+
+
+def build_graph_edges(dependencies):
+    edges = []
 
     for item in dependencies:
-        net.add_edge(
-            item["source_component_id"],
-            item["target_component_id"],
+        edge = Edge(
+            source=str(item["source_component_id"]),
+            target=str(item["target_component_id"]),
             label=item["dependency_type"],
-            title=item["dependency_type"],
         )
 
-    return net.generate_html()
+        edges.append(edge)
+
+    return edges
+
+
+def show_graph(components, dependencies, root_id=None, affected_ids=None):
+    nodes = build_graph_nodes(
+        components,
+        root_id=root_id,
+        affected_ids=affected_ids,
+    )
+    edges = build_graph_edges(dependencies)
+
+    config = Config(
+        width="100%",
+        height=560,
+        directed=True,
+        physics=True,
+        hierarchical=False,
+        nodeHighlightBehavior=True,
+        highlightColor="#f4a261",
+        collapsible=False,
+    )
+
+    selected_node = agraph(
+        nodes=nodes,
+        edges=edges,
+        config=config,
+    )
+
+    return selected_node
