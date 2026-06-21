@@ -32,6 +32,8 @@ services:
     container_name: analytics_map_frontend
     env_file:
       - .env
+    environment:
+      API_BASE_URL: http://backend:8000
     ports:
       - "8501:8501"
     depends_on:
