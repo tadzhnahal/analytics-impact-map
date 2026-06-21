@@ -7,12 +7,17 @@ body,
 }
 
 .graph-canvas-shell {
+  position: relative;
   width: 100%;
-  min-height: 480px;
+  min-height: 560px;
   border: 1px solid #d0d7de;
   border-radius: 12px;
   overflow: hidden;
   background: #f8fafc;
+}
+
+.graph-canvas-shell.graph-space-mode {
+  cursor: grab;
 }
 
 .graph-node {
@@ -53,4 +58,150 @@ body,
 .react-flow__edge.selected .react-flow__edge-path {
   stroke-width: 3;
   stroke: #8b5cf6;
+}
+
+.graph-floating-tools {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  z-index: 20;
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+}
+
+.graph-tool-button {
+  width: 36px;
+  height: 36px;
+  border: 1px solid #cbd5e1;
+  border-radius: 10px;
+  background: #ffffff;
+  color: #0f172a;
+  font-size: 20px;
+  line-height: 1;
+  cursor: pointer;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.12);
+}
+
+.graph-tool-button:hover {
+  background: #f1f5f9;
+}
+
+.graph-tool-active {
+  border-color: #f97316;
+  background: #ffedd5;
+}
+
+.graph-create-menu {
+  position: absolute;
+  top: 44px;
+  right: 0;
+  width: 280px;
+  padding: 12px;
+  border: 1px solid #cbd5e1;
+  border-radius: 14px;
+  background: #ffffff;
+  box-shadow: 0 16px 36px rgba(15, 23, 42, 0.18);
+}
+
+.graph-menu-tabs {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+
+.graph-menu-tabs button {
+  padding: 7px 8px;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  background: #f8fafc;
+  cursor: pointer;
+}
+
+.graph-menu-tabs .graph-menu-tab-active {
+  border-color: #2563eb;
+  background: #dbeafe;
+}
+
+.graph-menu-form {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+}
+
+.graph-menu-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  color: #334155;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.graph-menu-form input,
+.graph-menu-form select,
+.graph-menu-form textarea {
+  width: 100%;
+  box-sizing: border-box;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  padding: 8px;
+  color: #0f172a;
+  background: #ffffff;
+  font-size: 13px;
+}
+
+.graph-menu-form textarea {
+  min-height: 70px;
+  resize: vertical;
+}
+
+.graph-menu-submit {
+  margin-top: 4px;
+  padding: 9px 10px;
+  border: 0;
+  border-radius: 8px;
+  background: #2563eb;
+  color: #ffffff;
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.graph-menu-submit:disabled {
+  background: #94a3b8;
+  cursor: not-allowed;
+}
+
+.graph-mode-badge {
+  position: absolute;
+  top: 58px;
+  right: 12px;
+  z-index: 15;
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: #ffedd5;
+  color: #9a3412;
+  font-size: 13px;
+  font-weight: 700;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.12);
+}
+
+.graph-space-badge {
+  position: absolute;
+  top: 96px;
+  right: 12px;
+  z-index: 15;
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: #dbeafe;
+  color: #1d4ed8;
+  font-size: 13px;
+  font-weight: 700;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.12);
+}
+
+.react-flow__selection {
+  border: 1px solid #2563eb;
+  background: rgba(37, 99, 235, 0.12);
 }

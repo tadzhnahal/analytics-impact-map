@@ -12,11 +12,20 @@ _graph_canvas = components.declare_component(
 )
 
 
-def graph_canvas(nodes, edges, height=620, key=None):
+def graph_canvas(
+    nodes,
+    edges,
+    height=680,
+    analysis_mode=False,
+    layout_version=0,
+    key=None,
+):
     return _graph_canvas(
         nodes=nodes,
         edges=edges,
         height=height,
+        analysis_mode=analysis_mode,
+        layout_version=layout_version,
         default=None,
         key=key,
     )
