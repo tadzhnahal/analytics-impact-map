@@ -7,9 +7,24 @@ from api import (get_components, get_dependencies, run_analysis,
 from graph_canvas import graph_canvas
 
 
-def build_canvas_nodes(components, root_id=None, affected_ids=None):
+def to_int(value):
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def build_canvas_nodes(
+    components,
+    root_id=None,
+    affected_ids=None,
+    graph_positions=None,
+    selected_node_ids=None,
+):
     nodes = []
     affected_ids = affected_ids or []
+    graph_positions = graph_positions or {}
+    selected_node_ids = selected_node_ids or []
 
     for index, item in enumerate(components):
         status = "normal"
@@ -19,23 +34,37 @@ def build_canvas_nodes(components, root_id=None, affected_ids=None):
         elif item["id"] in affected_ids:
             status = "affected"
 
+        default_x = 120 + (index % 4) * 220
+        default_y = 80 + (index // 4) * 140
+
+        saved_position = graph_positions.get(str(item["id"]))
+
+        if saved_position:
+            x = saved_position.get("x", default_x)
+            y = saved_position.get("y", default_y)
+        else:
+            x = default_x
+            y = default_y
+
         nodes.append(
             {
                 "id": str(item["id"]),
                 "label": item["name"],
                 "node_type": item["component_type"],
                 "description": item["description"],
-                "x": 120 + (index % 4) * 220,
-                "y": 80 + (index // 4) * 140,
+                "x": x,
+                "y": y,
                 "status": status,
+                "selected": str(item["id"]) in selected_node_ids,
             }
         )
 
     return nodes
 
 
-def build_canvas_edges(dependencies):
+def build_canvas_edges(dependencies, selected_edge_ids=None):
     edges = []
+    selected_edge_ids = selected_edge_ids or []
 
     for item in dependencies:
         edges.append(
@@ -45,21 +74,290 @@ def build_canvas_edges(dependencies):
                 "target": str(item["target_component_id"]),
                 "label": item["dependency_type"],
                 "dependency_type": item["dependency_type"],
+                "selected": str(item["id"]) in selected_edge_ids,
             }
         )
 
     return edges
 
 
+def get_selected_components(selected_node_ids, component_map):
+    selected_components = []
+
+    for node_id in selected_node_ids:
+        component_id = to_int(node_id)
+
+        if component_id is None:
+            continue
+
+        component = component_map.get(component_id)
+
+        if component:
+            selected_components.append(component)
+
+    return selected_components
+
+
+def get_selected_dependency(selected_edge_ids, dependency_map):
+    if not selected_edge_ids:
+        return None
+
+    dependency_id = to_int(selected_edge_ids[0])
+
+    if dependency_id is None:
+        return None
+
+    return dependency_map.get(dependency_id)
+
+
+def clear_graph_selection():
+    st.session_state["selected_node_ids"] = []
+    st.session_state["selected_edge_ids"] = []
+
+
+def create_component_from_canvas(payload):
+    name = (payload.get("name") or "").strip()
+    component_type = payload.get("component_type") or "other"
+    description = (payload.get("description") or "").strip() or None
+
+    if not name:
+        st.session_state["canvas_message"] = "Название компонента не должно быть пустым"
+        return
+
+    try:
+        created_component = create_component(
+            name=name,
+            component_type=component_type,
+            description=description,
+        )
+
+        if created_component and "id" in created_component:
+            st.session_state["selected_node_ids"] = [str(created_component["id"])]
+            st.session_state["selected_edge_ids"] = []
+
+        st.session_state["analysis_result"] = None
+        st.session_state["canvas_message"] = "Компонент создан"
+        st.rerun()
+
+    except Exception as e:
+        st.session_state["canvas_message"] = f"Не удалось создать компонент: {e}"
+
+
+def create_dependency_from_canvas(payload):
+    source_id = to_int(payload.get("source_component_id"))
+    target_id = to_int(payload.get("target_component_id"))
+    dependency_type = payload.get("dependency_type") or "hard"
+
+    if source_id is None or target_id is None:
+        st.session_state["canvas_message"] = "Выберите два компонента"
+        return
+
+    if source_id == target_id:
+        st.session_state["canvas_message"] = "Компонент не может зависеть сам от себя"
+        return
+
+    try:
+        create_dependency(
+            source_component_id=source_id,
+            target_component_id=target_id,
+            dependency_type=dependency_type,
+        )
+        st.session_state["selected_node_ids"] = []
+        st.session_state["selected_edge_ids"] = []
+        st.session_state["analysis_result"] = None
+        st.session_state["canvas_message"] = "Связь создана"
+        st.rerun()
+
+    except Exception as e:
+        st.session_state["canvas_message"] = f"Не удалось создать связь: {e}"
+
+
+def run_analysis_from_canvas(node_ids):
+    if not node_ids:
+        return
+
+    component_id = to_int(node_ids[0])
+
+    if component_id is None:
+        return
+
+    try:
+        st.session_state["analysis_result"] = run_analysis(component_id)
+        st.session_state["selected_node_ids"] = [str(component_id)]
+        st.session_state["selected_edge_ids"] = []
+        st.session_state["canvas_message"] = "Анализ готов"
+        st.rerun()
+
+    except Exception as e:
+        st.session_state["canvas_message"] = f"Не удалось запустить анализ: {e}"
+
+
+def handle_canvas_event(canvas_event):
+    if not canvas_event:
+        return
+
+    event_type = canvas_event.get("event_type")
+    node_ids = canvas_event.get("node_ids") or []
+    edge_ids = canvas_event.get("edge_ids") or []
+    positions = canvas_event.get("positions") or {}
+    payload = canvas_event.get("payload") or {}
+
+    if positions:
+        st.session_state["graph_positions"] = positions
+
+    st.session_state["last_canvas_event"] = canvas_event
+    st.session_state["last_canvas_event_type"] = event_type
+
+    if event_type == "node_drag_stop":
+        return
+
+    if event_type == "create_component":
+        create_component_from_canvas(payload)
+        return
+
+    if event_type == "create_dependency":
+        create_dependency_from_canvas(payload)
+        return
+
+    if event_type == "toggle_analysis_mode":
+        st.session_state["analysis_mode"] = not st.session_state["analysis_mode"]
+
+        if st.session_state["analysis_mode"]:
+            st.session_state["canvas_message"] = "Кликните по узлу для анализа"
+        else:
+            st.session_state["canvas_message"] = None
+
+        st.rerun()
+
+    if event_type == "reset_layout":
+        st.session_state["graph_positions"] = {}
+        st.session_state["layout_version"] += 1
+        st.session_state["canvas_message"] = "Раскладка сброшена"
+        st.rerun()
+
+    if event_type == "run_analysis":
+        run_analysis_from_canvas(node_ids)
+        return
+
+    if event_type in ["node_click", "node_context_menu"]:
+        st.session_state["selected_node_ids"] = node_ids
+        st.session_state["selected_edge_ids"] = []
+
+    elif event_type in ["edge_click", "edge_context_menu"]:
+        st.session_state["selected_node_ids"] = []
+        st.session_state["selected_edge_ids"] = edge_ids
+
+    elif event_type == "pane_click":
+        clear_graph_selection()
+
+    elif event_type == "selection_change":
+        st.session_state["selected_node_ids"] = node_ids
+        st.session_state["selected_edge_ids"] = edge_ids
+
+
+def show_component_card(component):
+    st.markdown(f"### {component['name']}")
+    st.write(f"**id:** {component['id']}")
+    st.write(f"**тип:** {component['component_type']}")
+
+    if component["description"]:
+        st.write(f"**описание:** {component['description']}")
+    else:
+        st.write("**описание:** -")
+
+    if st.button(
+        "Запустить анализ",
+        key=f"run_analysis_from_inspector_{component['id']}",
+    ):
+        try:
+            st.session_state["analysis_result"] = run_analysis(component["id"])
+            st.rerun()
+        except Exception as e:
+            st.error(f"Не удалось запустить анализ: {e}")
+
+
+def show_multiple_components_card(components):
+    st.markdown("### Несколько узлов")
+    st.write(f"**выбрано:** {len(components)}")
+
+    rows = []
+
+    for item in components:
+        rows.append(
+            {
+                "id": item["id"],
+                "name": item["name"],
+                "type": item["component_type"],
+            }
+        )
+
+    st.table(rows)
+
+
+def show_dependency_card(dependency, component_map):
+    source_component = component_map.get(dependency["source_component_id"])
+    target_component = component_map.get(dependency["target_component_id"])
+
+    source_name = source_component["name"] if source_component else "Неизвестный компонент"
+    target_name = target_component["name"] if target_component else "Неизвестный компонент"
+
+    st.markdown("### Связь")
+    st.write(f"**id:** {dependency['id']}")
+    st.write(f"**откуда:** {source_name}")
+    st.write(f"**куда:** {target_name}")
+    st.write(f"**тип:** {dependency['dependency_type']}")
+
+    st.caption("Действия со связью добавим через контекстное меню.")
+
+
+def show_empty_inspector():
+    st.info("Кликните по узлу или связи на карте.")
+
+    st.markdown(
+        """
+        **Подсказки**
+
+        - ЛКМ по узлу выбирает компонент.
+        - ЛКМ по связи выбирает зависимость.
+        - Зажмите ЛКМ на пустом месте и потяните, чтобы выбрать рамкой.
+        - Потяните выбранный узел, чтобы сдвинуть группу.
+        - Держите Space и тяните поле, чтобы сдвинуть карту.
+        """
+    )
+
+
 st.set_page_config(
     page_title="Аналитическая карта зависимостей",
     layout="wide",
-    initial_sidebar_state="expanded",
+    initial_sidebar_state="collapsed",
 )
-st.title("Аналитическая карта зависимостей")
 
 if "analysis_result" not in st.session_state:
     st.session_state["analysis_result"] = None
+
+if "selected_node_ids" not in st.session_state:
+    st.session_state["selected_node_ids"] = []
+
+if "selected_edge_ids" not in st.session_state:
+    st.session_state["selected_edge_ids"] = []
+
+if "last_canvas_event" not in st.session_state:
+    st.session_state["last_canvas_event"] = None
+
+if "last_canvas_event_type" not in st.session_state:
+    st.session_state["last_canvas_event_type"] = None
+
+if "graph_positions" not in st.session_state:
+    st.session_state["graph_positions"] = {}
+
+if "analysis_mode" not in st.session_state:
+    st.session_state["analysis_mode"] = False
+
+if "canvas_message" not in st.session_state:
+    st.session_state["canvas_message"] = None
+
+if "layout_version" not in st.session_state:
+    st.session_state["layout_version"] = 0
 
 try:
     components = get_components()
@@ -79,6 +377,30 @@ component_map = {}
 for item in components:
     component_map[item["id"]] = item
 
+dependency_map = {}
+for item in dependencies:
+    dependency_map[item["id"]] = item
+
+valid_node_ids = set()
+for item in components:
+    valid_node_ids.add(str(item["id"]))
+
+valid_edge_ids = set()
+for item in dependencies:
+    valid_edge_ids.add(str(item["id"]))
+
+st.session_state["selected_node_ids"] = [
+    node_id
+    for node_id in st.session_state["selected_node_ids"]
+    if node_id in valid_node_ids
+]
+
+st.session_state["selected_edge_ids"] = [
+    edge_id
+    for edge_id in st.session_state["selected_edge_ids"]
+    if edge_id in valid_edge_ids
+]
+
 root_id = None
 affected_ids = []
 
@@ -89,34 +411,7 @@ if analysis_result:
         affected_ids.append(item["id"])
 
 with st.sidebar:
-    st.header("Управление")
-
-    with st.expander("Добавить новый компонент"):
-        with st.form("create_component_form"):
-            new_component_name = st.text_input("Название компонента")
-            new_component_type = st.selectbox(
-                "Тип компонента",
-                ["source", "mart", "dashboard", "service", "report", "other"],
-            )
-            new_component_description = st.text_area("Описание", height=80)
-
-            create_component_submit = st.form_submit_button("Добавить компонент")
-
-        if create_component_submit:
-            if not new_component_name.strip():
-                st.error("Название компонента не должно быть пустым")
-            else:
-                try:
-                    create_component(
-                        name=new_component_name.strip(),
-                        component_type=new_component_type,
-                        description=new_component_description.strip() or None,
-                    )
-                    st.session_state["analysis_result"] = None
-                    st.success("Вы успешно добавили компонент")
-                    st.rerun()
-                except Exception as e:
-                    st.error(f"Не удалось добавить компонент: {e}")
+    st.header("Запасные действия")
 
     with st.expander("Редактировать компонент"):
         if components:
@@ -204,6 +499,8 @@ with st.sidebar:
                 else:
                     try:
                         delete_component_by_id(component_id_to_delete)
+                        st.session_state["selected_node_ids"] = []
+                        st.session_state["selected_edge_ids"] = []
                         st.session_state["analysis_result"] = None
                         st.success("Вы успешно удалили компонент")
                         st.rerun()
@@ -212,60 +509,13 @@ with st.sidebar:
         else:
             st.info("Сначала добавьте хотя бы один компонент")
 
-    with st.expander("Добавить новую зависимость"):
-        if len(components) < 2:
-            st.info("Чтобы создать зависимость нужно минимум два компонента")
-        else:
-            dependency_component_options = {}
-
-            for item in components:
-                label = f"{item['id']} — {item['name']} ({item['component_type']})"
-                dependency_component_options[label] = item["id"]
-
-            with st.form("create_dependency_form"):
-                source_label = st.selectbox(
-                    "Исходный компонент",
-                    list(dependency_component_options.keys()),
-                    key="dependency_source",
-                )
-                target_label = st.selectbox(
-                    "Зависимый компонент",
-                    list(dependency_component_options.keys()),
-                    key="dependency_target",
-                )
-                new_dependency_type = st.selectbox(
-                    "Тип зависимости",
-                    ["hard", "soft"],
-                )
-
-                create_dependency_submit = st.form_submit_button("Добавить зависимость")
-
-            if create_dependency_submit:
-                source_id = dependency_component_options[source_label]
-                target_id = dependency_component_options[target_label]
-
-                if source_id == target_id:
-                    st.error("Компонент не может зависеть сам от себя")
-                else:
-                    try:
-                        create_dependency(
-                            source_component_id=source_id,
-                            target_component_id=target_id,
-                            dependency_type=new_dependency_type,
-                        )
-                        st.session_state["analysis_result"] = None
-                        st.success("Вы успешно добавили зависимость")
-                        st.rerun()
-                    except Exception as e:
-                        st.error(f"Не удалось добавить зависимость: {e}")
-
     with st.expander("Редактировать зависимость"):
         if dependencies:
             edit_dependency_options = {}
-            dependency_map = {}
+            dependency_map_for_sidebar = {}
 
             for item in dependencies:
-                dependency_map[item["id"]] = item
+                dependency_map_for_sidebar[item["id"]] = item
 
                 source_component = component_map.get(item["source_component_id"])
                 target_component = component_map.get(item["target_component_id"])
@@ -282,7 +532,7 @@ with st.sidebar:
             )
 
             edit_dependency_id = edit_dependency_options[edit_dependency_label]
-            selected_dependency = dependency_map.get(edit_dependency_id)
+            selected_dependency = dependency_map_for_sidebar.get(edit_dependency_id)
 
             edit_dependency_component_options = {}
 
@@ -382,6 +632,7 @@ with st.sidebar:
                 else:
                     try:
                         delete_dependency_by_id(dependency_id_to_delete)
+                        st.session_state["selected_edge_ids"] = []
                         st.session_state["analysis_result"] = None
                         st.success("Вы успешно удалили зависимость")
                         st.rerun()
@@ -390,135 +641,101 @@ with st.sidebar:
         else:
             st.info("Сначала добавьте хотя бы одну зависимость")
 
-    with st.expander("Запустить анализ влияния"):
-        if components:
-            component_options = {}
+graph_col, inspector_col = st.columns([4, 1])
 
-            for item in components:
-                label = f"{item['id']} — {item['name']} ({item['component_type']})"
-                component_options[label] = item["id"]
-
-            selected_label = st.selectbox(
-                "Выберите корневой узел",
-                list(component_options.keys()),
-            )
-
-            selected_component_id = component_options[selected_label]
-
-            if st.button("Запустить анализ влияния"):
-                try:
-                    st.session_state["analysis_result"] = run_analysis(selected_component_id)
-                    st.rerun()
-                except Exception as e:
-                    st.session_state["analysis_result"] = None
-                    st.error(f"Не удалось запустить анализ: {e}")
-        else:
-            st.info("Сначала добавьте хотя бы один компонент")
-
-    st.markdown("---")
-
-    with st.expander("Помощь"):
-        st.markdown(
-            """
-            **Что показывает карта**
-
-            Зависимости между аналитическими компонентами, например, источниками данных,
-            витринами и дашбордами.
-
-            **Как читать карту**
-            - стрелка показывает направление зависимости;
-            - если узел A ведёт в узел B, значит, B зависит от A;
-            - если источник ломается, система показывает, какие узлы это затронет.
-
-            **Как пользоваться картой**
-            1. Выберите корневой узел.
-            2. Запустите анализ.
-            3. Посмотрите подсветку на карте и список затронутых компонентов.
-
-            **Что обозначают цвета узлов**
-            - оранжевый: выбранный корневой узел;
-            - красный: затронутый узел;
-            - голубой: обычный узел.
-            """
-        )
-
-metrics_col_1, metrics_col_2, metrics_col_3 = st.columns(3)
-
-with metrics_col_1:
-    st.metric("Компоненты", len(components))
-
-with metrics_col_2:
-    st.metric("Зависимости", len(dependencies))
-
-with metrics_col_3:
-    if analysis_result:
-        st.metric("Затронутые узлы", analysis_result["affected_count"])
-    else:
-        st.metric("Затронутые узлы", "-")
-
-st.subheader("Карта зависимостей")
-
-if components:
+with graph_col:
     canvas_nodes = build_canvas_nodes(
         components,
         root_id=root_id,
         affected_ids=affected_ids,
+        graph_positions=st.session_state["graph_positions"],
+        selected_node_ids=st.session_state["selected_node_ids"],
     )
-    canvas_edges = build_canvas_edges(dependencies)
+    canvas_edges = build_canvas_edges(
+        dependencies,
+        selected_edge_ids=st.session_state["selected_edge_ids"],
+    )
 
     canvas_event = graph_canvas(
         nodes=canvas_nodes,
         edges=canvas_edges,
-        height=560,
-        key="graph_canvas_stage_8",
+        height=720,
+        analysis_mode=st.session_state["analysis_mode"],
+        layout_version=st.session_state["layout_version"],
+        key="graph_canvas_stage_9_fixed_drag",
     )
 
-    if canvas_event:
-        st.write("Событие из поля карты:")
-        st.json(canvas_event)
-else:
-    st.info("Карта пока пустая. Добавьте первый компонент через боковую панель.")
+    handle_canvas_event(canvas_event)
+
+with inspector_col:
+    st.subheader("Проверка")
+
+    if st.session_state["canvas_message"]:
+        st.info(st.session_state["canvas_message"])
+
+    selected_components = get_selected_components(
+        st.session_state["selected_node_ids"],
+        component_map,
+    )
+    selected_dependency = get_selected_dependency(
+        st.session_state["selected_edge_ids"],
+        dependency_map,
+    )
+
+    if selected_dependency:
+        show_dependency_card(selected_dependency, component_map)
+
+    elif len(selected_components) == 1:
+        show_component_card(selected_components[0])
+
+    elif len(selected_components) > 1:
+        show_multiple_components_card(selected_components)
+
+    else:
+        show_empty_inspector()
+
+    with st.expander("Debug события"):
+        if st.session_state["last_canvas_event"]:
+            st.json(st.session_state["last_canvas_event"])
+        else:
+            st.write("Событий пока нет")
 
 if analysis_result:
     root_component = analysis_result["root_component"]
     affected_components = analysis_result["affected_components"]
     affected_count = analysis_result["affected_count"]
 
-    st.subheader("Результат анализа")
+    with st.expander("Результат анализа", expanded=True):
+        root_table = [
+            {
+                "id": root_component["id"],
+                "name": root_component["name"],
+                "type": root_component["component_type"],
+                "description": root_component["description"],
+            }
+        ]
 
-    root_table = [
-        {
-            "id": root_component["id"],
-            "name": root_component["name"],
-            "type": root_component["component_type"],
-            "description": root_component["description"],
-        }
-    ]
+        st.write("Корневой узел:")
+        st.table(root_table)
 
-    st.write("Корневой узел:")
-    st.table(root_table)
+        st.write(f"Затронутые компоненты: {affected_count}")
 
-    st.write(f"Затронутые компоненты: {affected_count}")
+        if affected_components:
+            affected_table = []
 
-    if affected_components:
-        affected_table = []
+            for item in affected_components:
+                affected_table.append(
+                    {
+                        "id": item["id"],
+                        "name": item["name"],
+                        "type": item["component_type"],
+                        "description": item["description"],
+                    }
+                )
 
-        for item in affected_components:
-            affected_table.append(
-                {
-                    "id": item["id"],
-                    "name": item["name"],
-                    "type": item["component_type"],
-                    "description": item["description"],
-                }
-            )
-
-        st.table(affected_table)
-    else:
-        st.info("Затронутых компонентов нет")
-
-else:
-    st.info("Выберите узел в боковой панели и запустите анализ.")
+            st.table(affected_table)
+        else:
+            st.info("Затронутых компонентов нет")
 
 with st.expander("Показать все компоненты"):
     if components:
