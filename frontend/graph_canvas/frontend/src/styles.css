@@ -233,3 +233,62 @@ body,
   border: 1px solid #2563eb;
   background: rgba(37, 99, 235, 0.12);
 }
+
+.graph-context-menu {
+  position: absolute;
+  z-index: 30;
+  width: 230px;
+  padding: 7px;
+  border: 1px solid #cbd5e1;
+  border-radius: 12px;
+  background: #ffffff;
+  box-shadow: 0 16px 36px rgba(15, 23, 42, 0.18);
+}
+
+.graph-context-title {
+  padding: 7px 9px;
+  color: #475569;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.graph-context-menu button {
+  width: 100%;
+  display: block;
+  box-sizing: border-box;
+  padding: 8px 9px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: #0f172a;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.graph-context-menu button:hover {
+  background: #f1f5f9;
+}
+
+.graph-context-menu button:disabled {
+  color: #94a3b8;
+  cursor: not-allowed;
+}
+
+.graph-context-menu button:disabled:hover {
+  background: transparent;
+}
+
+.graph-context-danger {
+  color: #b91c1c !important;
+}
+
+.graph-context-danger:hover {
+  background: #fee2e2 !important;
+}
+
+.graph-context-separator {
+  height: 1px;
+  margin: 6px 4px;
+  background: #e2e8f0;
+}

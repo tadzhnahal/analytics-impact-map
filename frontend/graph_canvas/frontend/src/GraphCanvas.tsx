@@ -12,6 +12,7 @@ import {
 import "@xyflow/react/dist/style.css";
 import { ComponentProps, Streamlit } from "streamlit-component-lib";
 
+import ContextMenu, { ContextMenuState } from "./components/ContextMenu";
 import CreateMenu from "./components/CreateMenu";
 import DeleteMenu from "./components/DeleteMenu";
 import EditMenu from "./components/EditMenu";
@@ -26,6 +27,76 @@ import {
   mergeNodes
 } from "./graphData";
 import { CanvasEvent, MenuTargetType, RawEdge, RawNode } from "./types";
+
+const closedContextMenu: ContextMenuState = {
+  isOpen: false,
+  targetType: "pane",
+  x: 0,
+  y: 0
+};
+
+type TouchContext = {
+  clientX: number;
+  clientY: number;
+  startX: number;
+  startY: number;
+  target: EventTarget | null;
+  time: number;
+};
+
+function getTouchCenter(touches: React.TouchList) {
+  const firstTouch = touches.item(0);
+  const secondTouch = touches.item(1);
+
+  if (!firstTouch || !secondTouch) {
+    return null;
+  }
+
+  return {
+    clientX: (firstTouch.clientX + secondTouch.clientX) / 2,
+    clientY: (firstTouch.clientY + secondTouch.clientY) / 2
+  };
+}
+
+function getNodeIdFromTarget(target: EventTarget | null) {
+  if (!(target instanceof Element)) {
+    return "";
+  }
+
+  const nodeElement = target.closest(".react-flow__node");
+
+  if (!nodeElement) {
+    return "";
+  }
+
+  return nodeElement.getAttribute("data-id") || "";
+}
+
+function getEdgeIdFromTarget(target: EventTarget | null) {
+  if (!(target instanceof Element)) {
+    return "";
+  }
+
+  const edgeElement = target.closest(".react-flow__edge");
+
+  if (!edgeElement) {
+    return "";
+  }
+
+  const dataId = edgeElement.getAttribute("data-id");
+
+  if (dataId) {
+    return dataId;
+  }
+
+  const elementId = edgeElement.getAttribute("id") || "";
+
+  if (elementId.startsWith("react-flow__edge-")) {
+    return elementId.replace("react-flow__edge-", "");
+  }
+
+  return "";
+}
 
 function GraphCanvas(props: ComponentProps) {
   const rawNodes = (props.args["nodes"] ?? []) as RawNode[];
@@ -48,6 +119,8 @@ function GraphCanvas(props: ComponentProps) {
 
   const [deleteMenuOpen, setDeleteMenuOpen] = useState(false);
   const [deleteTargetType, setDeleteTargetType] = useState<MenuTargetType>("none");
+
+  const [contextMenu, setContextMenu] = useState<ContextMenuState>(closedContextMenu);
 
   const [componentName, setComponentName] = useState("");
   const [componentType, setComponentType] = useState("source");
@@ -72,6 +145,8 @@ function GraphCanvas(props: ComponentProps) {
 
   const [spacePressed, setSpacePressed] = useState(false);
 
+  const shellRef = useRef<HTMLDivElement | null>(null);
+
   const latestNodesRef = useRef<Node[]>(initialNodes);
   const latestEdgesRef = useRef<Edge[]>(initialEdges);
   const layoutVersionRef = useRef(layoutVersion);
@@ -83,6 +158,8 @@ function GraphCanvas(props: ComponentProps) {
   const nodeDragHappenedRef = useRef(false);
   const skipNextSelectionSendRef = useRef(false);
   const ignoreNextPaneClickRef = useRef(false);
+
+  const twoFingerTouchRef = useRef<TouchContext | null>(null);
 
   useEffect(() => {
     latestNodesRef.current = nodes;
@@ -206,10 +283,156 @@ function GraphCanvas(props: ComponentProps) {
     };
   }, [sendEvent]);
 
+  const hideContextMenu = () => {
+    setContextMenu(closedContextMenu);
+  };
+
   const closeMenus = () => {
     setCreateMenuOpen(false);
     setEditMenuOpen(false);
     setDeleteMenuOpen(false);
+    hideContextMenu();
+  };
+
+  const getCanvasPoint = (clientX: number, clientY: number) => {
+    const rect = shellRef.current?.getBoundingClientRect();
+
+    if (!rect) {
+      return {
+        x: clientX,
+        y: clientY
+      };
+    }
+
+    return {
+      x: clientX - rect.left,
+      y: clientY - rect.top
+    };
+  };
+
+  const selectOnlyNode = (nodeId: string) => {
+    setNodes((currentNodes) => {
+      const nextNodes = currentNodes.map((node) => ({
+        ...node,
+        selected: node.id === nodeId
+      }));
+
+      latestNodesRef.current = nextNodes;
+      return nextNodes;
+    });
+
+    setEdges((currentEdges) => {
+      const nextEdges = currentEdges.map((edge) => ({
+        ...edge,
+        selected: false
+      }));
+
+      latestEdgesRef.current = nextEdges;
+      return nextEdges;
+    });
+
+    selectedNodeIdsRef.current = [nodeId];
+    selectedEdgeIdsRef.current = [];
+    selectionChangedRef.current = false;
+  };
+
+  const selectOnlyEdge = (edgeId: string) => {
+    setNodes((currentNodes) => {
+      const nextNodes = currentNodes.map((node) => ({
+        ...node,
+        selected: false
+      }));
+
+      latestNodesRef.current = nextNodes;
+      return nextNodes;
+    });
+
+    setEdges((currentEdges) => {
+      const nextEdges = currentEdges.map((edge) => ({
+        ...edge,
+        selected: edge.id === edgeId
+      }));
+
+      latestEdgesRef.current = nextEdges;
+      return nextEdges;
+    });
+
+    selectedNodeIdsRef.current = [];
+    selectedEdgeIdsRef.current = [edgeId];
+    selectionChangedRef.current = false;
+  };
+
+  const openPaneContextMenu = (clientX: number, clientY: number) => {
+    const point = getCanvasPoint(clientX, clientY);
+
+    setCreateMenuOpen(false);
+    setEditMenuOpen(false);
+    setDeleteMenuOpen(false);
+
+    setContextMenu({
+      isOpen: true,
+      targetType: "pane",
+      x: point.x,
+      y: point.y
+    });
+  };
+
+  const openNodeContextMenu = (clientX: number, clientY: number, nodeId: string) => {
+    const point = getCanvasPoint(clientX, clientY);
+    const rawNode = rawNodes.find((node) => node.id === nodeId);
+
+    selectOnlyNode(nodeId);
+
+    setCreateMenuOpen(false);
+    setEditMenuOpen(false);
+    setDeleteMenuOpen(false);
+
+    setContextMenu({
+      isOpen: true,
+      targetType: "node",
+      targetId: nodeId,
+      label: rawNode ? rawNode.label : nodeId,
+      x: point.x,
+      y: point.y
+    });
+  };
+
+  const openEdgeContextMenu = (clientX: number, clientY: number, edgeId: string) => {
+    const point = getCanvasPoint(clientX, clientY);
+    const rawEdge = rawEdges.find((edge) => edge.id === edgeId);
+
+    selectOnlyEdge(edgeId);
+
+    setCreateMenuOpen(false);
+    setEditMenuOpen(false);
+    setDeleteMenuOpen(false);
+
+    setContextMenu({
+      isOpen: true,
+      targetType: "edge",
+      targetId: edgeId,
+      label: rawEdge ? `${rawEdge.source} -> ${rawEdge.target}` : edgeId,
+      x: point.x,
+      y: point.y
+    });
+  };
+
+  const openContextMenuFromDomTarget = (clientX: number, clientY: number, target: EventTarget | null) => {
+    const nodeId = getNodeIdFromTarget(target);
+
+    if (nodeId) {
+      openNodeContextMenu(clientX, clientY, nodeId);
+      return;
+    }
+
+    const edgeId = getEdgeIdFromTarget(target);
+
+    if (edgeId) {
+      openEdgeContextMenu(clientX, clientY, edgeId);
+      return;
+    }
+
+    openPaneContextMenu(clientX, clientY);
   };
 
   const createComponent = () => {
@@ -250,6 +473,7 @@ function GraphCanvas(props: ComponentProps) {
 
     setCreateMenuOpen(false);
     setDeleteMenuOpen(false);
+    hideContextMenu();
 
     if (selectedNodeIds.length === 1 && selectedEdgeIds.length === 0) {
       const selectedNode = rawNodes.find((node) => node.id === selectedNodeIds[0]);
@@ -285,6 +509,47 @@ function GraphCanvas(props: ComponentProps) {
 
     setEditTargetType("none");
     setEditMenuOpen(true);
+  };
+
+  const openEditMenuFromContext = () => {
+    if (contextMenu.targetType === "node" && contextMenu.targetId) {
+      const selectedNode = rawNodes.find((node) => node.id === contextMenu.targetId);
+
+      if (!selectedNode) {
+        return;
+      }
+
+      setCreateMenuOpen(false);
+      setDeleteMenuOpen(false);
+      hideContextMenu();
+
+      setEditTargetType("component");
+      setEditComponentId(selectedNode.id);
+      setEditComponentName(selectedNode.label);
+      setEditComponentType(selectedNode.node_type || "other");
+      setEditComponentDescription(selectedNode.description || "");
+      setEditMenuOpen(true);
+      return;
+    }
+
+    if (contextMenu.targetType === "edge" && contextMenu.targetId) {
+      const selectedEdge = rawEdges.find((edge) => edge.id === contextMenu.targetId);
+
+      if (!selectedEdge) {
+        return;
+      }
+
+      setCreateMenuOpen(false);
+      setDeleteMenuOpen(false);
+      hideContextMenu();
+
+      setEditTargetType("dependency");
+      setEditDependencyId(selectedEdge.id);
+      setEditSourceNodeId(selectedEdge.source);
+      setEditTargetNodeId(selectedEdge.target);
+      setEditDependencyType(selectedEdge.dependency_type || "hard");
+      setEditMenuOpen(true);
+    }
   };
 
   const updateComponent = () => {
@@ -329,6 +594,7 @@ function GraphCanvas(props: ComponentProps) {
 
     setCreateMenuOpen(false);
     setEditMenuOpen(false);
+    hideContextMenu();
 
     if (selectedNodeIds.length === 1 && selectedEdgeIds.length === 0) {
       const selectedNode = rawNodes.find((node) => node.id === selectedNodeIds[0]);
@@ -356,6 +622,35 @@ function GraphCanvas(props: ComponentProps) {
     setDeleteMenuOpen(true);
   };
 
+  const openDeleteMenuFromContext = () => {
+    if (contextMenu.targetType === "node" && contextMenu.targetId) {
+      const selectedNode = rawNodes.find((node) => node.id === contextMenu.targetId);
+
+      setCreateMenuOpen(false);
+      setEditMenuOpen(false);
+      hideContextMenu();
+
+      setDeleteTargetType("component");
+      setDeleteTargetId(contextMenu.targetId);
+      setDeleteTargetLabel(selectedNode ? selectedNode.label : contextMenu.targetId);
+      setDeleteMenuOpen(true);
+      return;
+    }
+
+    if (contextMenu.targetType === "edge" && contextMenu.targetId) {
+      const selectedEdge = rawEdges.find((edge) => edge.id === contextMenu.targetId);
+
+      setCreateMenuOpen(false);
+      setEditMenuOpen(false);
+      hideContextMenu();
+
+      setDeleteTargetType("dependency");
+      setDeleteTargetId(contextMenu.targetId);
+      setDeleteTargetLabel(selectedEdge ? `${selectedEdge.source} -> ${selectedEdge.target}` : contextMenu.targetId);
+      setDeleteMenuOpen(true);
+    }
+  };
+
   const deleteSelectedObject = () => {
     if (deleteTargetType === "component") {
       sendSimpleEvent("delete_component", "toolbar", [deleteTargetId], [], {
@@ -373,14 +668,149 @@ function GraphCanvas(props: ComponentProps) {
     }
   };
 
+  const runAnalysisFromContext = () => {
+    if (contextMenu.targetType !== "node" || !contextMenu.targetId) {
+      return;
+    }
+
+    sendSimpleEvent("run_analysis", "context_menu", [contextMenu.targetId], []);
+    closeMenus();
+  };
+
+  const createDependencyFromContextNode = () => {
+    if (contextMenu.targetType !== "node" || !contextMenu.targetId) {
+      return;
+    }
+
+    const sourceId = contextMenu.targetId;
+    const firstOtherNode = rawNodes.find((node) => node.id !== sourceId);
+
+    setSourceNodeId(sourceId);
+    setTargetNodeId(firstOtherNode ? firstOtherNode.id : sourceId);
+    setCreateMenuTab("dependency");
+
+    setEditMenuOpen(false);
+    setDeleteMenuOpen(false);
+    hideContextMenu();
+    setCreateMenuOpen(true);
+  };
+
+  const createComponentFromContextPane = () => {
+    setCreateMenuTab("component");
+    setEditMenuOpen(false);
+    setDeleteMenuOpen(false);
+    hideContextMenu();
+    setCreateMenuOpen(true);
+  };
+
+  const toggleDependencyTypeFromContext = () => {
+    if (contextMenu.targetType !== "edge" || !contextMenu.targetId) {
+      return;
+    }
+
+    const selectedEdge = rawEdges.find((edge) => edge.id === contextMenu.targetId);
+
+    if (!selectedEdge) {
+      return;
+    }
+
+    const nextDependencyType = selectedEdge.dependency_type === "hard" ? "soft" : "hard";
+
+    sendSimpleEvent("update_dependency", "context_menu", [], [selectedEdge.id], {
+      dependency_id: selectedEdge.id,
+      source_component_id: selectedEdge.source,
+      target_component_id: selectedEdge.target,
+      dependency_type: nextDependencyType
+    });
+
+    closeMenus();
+  };
+
+  const resetLayoutFromContext = () => {
+    sendSimpleEvent("reset_layout", "context_menu", [], []);
+    closeMenus();
+  };
+
   const handleSelectionChange = useCallback((selectedNodes: Node[], selectedEdges: Edge[]) => {
     selectedNodeIdsRef.current = selectedNodes.map((node) => node.id);
     selectedEdgeIdsRef.current = selectedEdges.map((edge) => edge.id);
     selectionChangedRef.current = true;
   }, []);
 
+  const handleTwoFingerTouchStart = (event: React.TouchEvent<HTMLDivElement>) => {
+    if (event.touches.length !== 2) {
+      twoFingerTouchRef.current = null;
+      return;
+    }
+
+    const center = getTouchCenter(event.touches);
+
+    if (!center) {
+      twoFingerTouchRef.current = null;
+      return;
+    }
+
+    twoFingerTouchRef.current = {
+      clientX: center.clientX,
+      clientY: center.clientY,
+      startX: center.clientX,
+      startY: center.clientY,
+      target: event.target,
+      time: Date.now()
+    };
+  };
+
+  const handleTwoFingerTouchMove = (event: React.TouchEvent<HTMLDivElement>) => {
+    if (!twoFingerTouchRef.current || event.touches.length !== 2) {
+      return;
+    }
+
+    const center = getTouchCenter(event.touches);
+
+    if (!center) {
+      twoFingerTouchRef.current = null;
+      return;
+    }
+
+    const deltaX = Math.abs(center.clientX - twoFingerTouchRef.current.startX);
+    const deltaY = Math.abs(center.clientY - twoFingerTouchRef.current.startY);
+
+    if (deltaX > 18 || deltaY > 18) {
+      twoFingerTouchRef.current = null;
+    }
+  };
+
+  const handleTwoFingerTouchEnd = (event: React.TouchEvent<HTMLDivElement>) => {
+    if (!twoFingerTouchRef.current) {
+      return;
+    }
+
+    const touchContext = twoFingerTouchRef.current;
+    twoFingerTouchRef.current = null;
+
+    const elapsedTime = Date.now() - touchContext.time;
+
+    if (elapsedTime > 550) {
+      return;
+    }
+
+    event.preventDefault();
+    openContextMenuFromDomTarget(
+      touchContext.clientX,
+      touchContext.clientY,
+      touchContext.target
+    );
+  };
+
   return (
-    <div className={spacePressed ? "graph-canvas-shell graph-space-mode" : "graph-canvas-shell"} style={{ height }}>
+    <div
+      ref={shellRef}
+      className={spacePressed ? "graph-canvas-shell graph-space-mode" : "graph-canvas-shell"}
+      style={{ height }}
+      onTouchStart={handleTwoFingerTouchStart}
+      onTouchMove={handleTwoFingerTouchMove}
+      onTouchEnd={handleTwoFingerTouchEnd}
+    >
       <div
         className="graph-floating-tools"
         onClick={(event) => event.stopPropagation()}
@@ -453,6 +883,19 @@ function GraphCanvas(props: ComponentProps) {
         )}
       </div>
 
+      <ContextMenu
+        menu={contextMenu}
+        canCreateDependency={rawNodes.length > 1}
+        onClose={hideContextMenu}
+        onRunAnalysis={runAnalysisFromContext}
+        onEdit={openEditMenuFromContext}
+        onDelete={openDeleteMenuFromContext}
+        onCreateDependencyFromNode={createDependencyFromContextNode}
+        onCreateComponent={createComponentFromContextPane}
+        onResetLayout={resetLayoutFromContext}
+        onToggleDependencyType={toggleDependencyTypeFromContext}
+      />
+
       {analysisMode && (
         <div className="graph-mode-badge">
           Анализ: кликните по узлу
@@ -491,7 +934,14 @@ function GraphCanvas(props: ComponentProps) {
           closeMenus();
           sendSimpleEvent("pane_click", "pane", [], []);
         }}
+        onPaneContextMenu={(event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          openPaneContextMenu(event.clientX, event.clientY);
+        }}
         onNodeClick={(event, node) => {
+          hideContextMenu();
+
           if (analysisMode) {
             sendSimpleEvent("run_analysis", "node", [node.id], []);
             return;
@@ -511,19 +961,21 @@ function GraphCanvas(props: ComponentProps) {
         }}
         onNodeContextMenu={(event, node) => {
           event.preventDefault();
-          skipNextSelectionSendRef.current = true;
-          sendSimpleEvent("node_context_menu", "node", [node.id], []);
+          event.stopPropagation();
+          openNodeContextMenu(event.clientX, event.clientY, node.id);
         }}
         onEdgeClick={(_, edge) => {
+          hideContextMenu();
           skipNextSelectionSendRef.current = true;
           sendSimpleEvent("edge_click", "edge", [], [edge.id]);
         }}
         onEdgeContextMenu={(event, edge) => {
           event.preventDefault();
-          skipNextSelectionSendRef.current = true;
-          sendSimpleEvent("edge_context_menu", "edge", [], [edge.id]);
+          event.stopPropagation();
+          openEdgeContextMenu(event.clientX, event.clientY, edge.id);
         }}
         onNodeDragStart={() => {
+          hideContextMenu();
           nodeDragHappenedRef.current = true;
         }}
         onNodeDragStop={(_, node) => {
