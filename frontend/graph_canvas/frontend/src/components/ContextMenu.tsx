@@ -9,6 +9,8 @@ export type ContextMenuState = {
   y: number;
   targetId?: string;
   label?: string;
+  flowX?: number;
+  flowY?: number;
 };
 
 type ContextMenuProps = {

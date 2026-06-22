@@ -7,6 +7,13 @@ from app_state import clear_graph_selection, reset_after_data_change
 from canvas_data import to_int
 
 
+def to_float(value):
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
 def get_canvas_event_id(canvas_event):
     timestamp = canvas_event.get("timestamp")
 
@@ -25,6 +32,8 @@ def create_component_from_canvas(payload):
     name = (payload.get("name") or "").strip()
     component_type = payload.get("component_type") or "other"
     description = (payload.get("description") or "").strip() or None
+    x_position = to_float(payload.get("x"))
+    y_position = to_float(payload.get("y"))
 
     if not name:
         st.session_state["canvas_message"] = "Название компонента не должно быть пустым"
@@ -38,8 +47,16 @@ def create_component_from_canvas(payload):
         )
 
         if created_component and "id" in created_component:
-            st.session_state["selected_node_ids"] = [str(created_component["id"])]
+            created_component_id = str(created_component["id"])
+
+            st.session_state["selected_node_ids"] = [created_component_id]
             st.session_state["selected_edge_ids"] = []
+
+            if x_position is not None and y_position is not None:
+                st.session_state["graph_positions"][created_component_id] = {
+                    "x": x_position,
+                    "y": y_position,
+                }
 
         st.session_state["analysis_result"] = None
         st.session_state["analysis_mode"] = False
