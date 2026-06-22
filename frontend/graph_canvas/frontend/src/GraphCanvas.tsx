@@ -121,6 +121,7 @@ function GraphCanvas(props: ComponentProps) {
   const [deleteTargetType, setDeleteTargetType] = useState<MenuTargetType>("none");
 
   const [contextMenu, setContextMenu] = useState<ContextMenuState>(closedContextMenu);
+  const [newComponentPosition, setNewComponentPosition] = useState<{ x: number; y: number } | null>(null);
 
   const [componentName, setComponentName] = useState("");
   const [componentType, setComponentType] = useState("source");
@@ -146,6 +147,7 @@ function GraphCanvas(props: ComponentProps) {
   const [spacePressed, setSpacePressed] = useState(false);
 
   const shellRef = useRef<HTMLDivElement | null>(null);
+  const reactFlowInstanceRef = useRef<any>(null);
 
   const latestNodesRef = useRef<Node[]>(initialNodes);
   const latestEdgesRef = useRef<Edge[]>(initialEdges);
@@ -291,6 +293,7 @@ function GraphCanvas(props: ComponentProps) {
     setCreateMenuOpen(false);
     setEditMenuOpen(false);
     setDeleteMenuOpen(false);
+    setNewComponentPosition(null);
     hideContextMenu();
   };
 
@@ -308,6 +311,17 @@ function GraphCanvas(props: ComponentProps) {
       x: clientX - rect.left,
       y: clientY - rect.top
     };
+  };
+
+  const getFlowPoint = (clientX: number, clientY: number) => {
+    if (!reactFlowInstanceRef.current) {
+      return getCanvasPoint(clientX, clientY);
+    }
+
+    return reactFlowInstanceRef.current.screenToFlowPosition({
+      x: clientX,
+      y: clientY
+    });
   };
 
   const selectOnlyNode = (nodeId: string) => {
@@ -364,6 +378,7 @@ function GraphCanvas(props: ComponentProps) {
 
   const openPaneContextMenu = (clientX: number, clientY: number) => {
     const point = getCanvasPoint(clientX, clientY);
+    const flowPoint = getFlowPoint(clientX, clientY);
 
     setCreateMenuOpen(false);
     setEditMenuOpen(false);
@@ -373,7 +388,9 @@ function GraphCanvas(props: ComponentProps) {
       isOpen: true,
       targetType: "pane",
       x: point.x,
-      y: point.y
+      y: point.y,
+      flowX: flowPoint.x,
+      flowY: flowPoint.y
     });
   };
 
@@ -442,11 +459,18 @@ function GraphCanvas(props: ComponentProps) {
       return;
     }
 
-    sendSimpleEvent("create_component", "toolbar", [], [], {
+    const payload: Record<string, unknown> = {
       name: cleanName,
       component_type: componentType,
       description: componentDescription.trim()
-    });
+    };
+
+    if (newComponentPosition) {
+      payload.x = newComponentPosition.x;
+      payload.y = newComponentPosition.y;
+    }
+
+    sendSimpleEvent("create_component", "toolbar", [], [], payload);
 
     setComponentName("");
     setComponentDescription("");
@@ -696,11 +720,28 @@ function GraphCanvas(props: ComponentProps) {
   };
 
   const createComponentFromContextPane = () => {
+    if (typeof contextMenu.flowX === "number" && typeof contextMenu.flowY === "number") {
+      setNewComponentPosition({
+        x: Math.round(contextMenu.flowX),
+        y: Math.round(contextMenu.flowY)
+      });
+    } else {
+      setNewComponentPosition(null);
+    }
+
     setCreateMenuTab("component");
     setEditMenuOpen(false);
     setDeleteMenuOpen(false);
     hideContextMenu();
     setCreateMenuOpen(true);
+  };
+
+  const openCreateMenuFromToolbar = () => {
+    setNewComponentPosition(null);
+    setCreateMenuOpen(!createMenuOpen);
+    setEditMenuOpen(false);
+    setDeleteMenuOpen(false);
+    hideContextMenu();
   };
 
   const toggleDependencyTypeFromContext = () => {
@@ -826,6 +867,7 @@ function GraphCanvas(props: ComponentProps) {
           setCreateMenuOpen={setCreateMenuOpen}
           setEditMenuOpen={setEditMenuOpen}
           setDeleteMenuOpen={setDeleteMenuOpen}
+          openCreateButtonClick={openCreateMenuFromToolbar}
           openEditMenu={openEditMenu}
           openDeleteMenu={openDeleteMenu}
           sendSimpleEvent={sendSimpleEvent}
@@ -909,6 +951,9 @@ function GraphCanvas(props: ComponentProps) {
       )}
 
       <ReactFlow
+        onInit={(instance) => {
+          reactFlowInstanceRef.current = instance;
+        }}
         nodes={nodes}
         edges={edges}
         fitView

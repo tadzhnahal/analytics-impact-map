@@ -16,6 +16,7 @@ type ToolbarProps = {
   setEditMenuOpen: (value: boolean) => void;
   setDeleteMenuOpen: (value: boolean) => void;
 
+  openCreateButtonClick: () => void;
   openEditMenu: () => void;
   openDeleteMenu: () => void;
   sendSimpleEvent: (
@@ -33,11 +34,7 @@ function Toolbar(props: ToolbarProps) {
       <button
         className="graph-tool-button"
         title="Создать компонент или связь"
-        onClick={() => {
-          props.setCreateMenuOpen(!props.createMenuOpen);
-          props.setEditMenuOpen(false);
-          props.setDeleteMenuOpen(false);
-        }}
+        onClick={props.openCreateButtonClick}
       >
         +
       </button>
