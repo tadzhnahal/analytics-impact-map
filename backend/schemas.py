@@ -1,20 +1,28 @@
 from pydantic import BaseModel, Field
 
+
 class ComponentCreate(BaseModel):
     name: str = Field(min_length=1, max_length=100)
     component_type: str = Field(min_length=1, max_length=50)
     description: str | None = None
+    position_x: float | None = None
+    position_y: float | None = None
+
 
 class ComponentOut(BaseModel):
     id: int
     name: str
     component_type: str
     description: str | None = None
+    position_x: float | None = None
+    position_y: float | None = None
+
 
 class DependencyCreate(BaseModel):
     source_component_id: int
     target_component_id: int
     dependency_type: str = 'hard'
+
 
 class DependencyOut(BaseModel):
     id: int
@@ -25,13 +33,26 @@ class DependencyOut(BaseModel):
 class AnalysisRunRequest(BaseModel):
     component_id: int
 
+
 class AnalysisComponentOut(BaseModel):
     id: int
     name: str
     component_type: str
     description: str | None = None
+    position_x: float | None = None
+    position_y: float | None = None
+
 
 class AnalysisResultOut(BaseModel):
     root_component: AnalysisComponentOut
     affected_components: list[AnalysisComponentOut]
     affected_count: int
+
+
+class ComponentPositionIn(BaseModel):
+    id: int
+    position_x: float
+    position_y: float
+
+class ComponentPositionsUpdate(BaseModel):
+    positions: list[ComponentPositionIn]

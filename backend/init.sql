@@ -3,6 +3,8 @@ create table if not exists components (
 	name varchar(100) not null unique,
 	component_type varchar(50) not null,
 	description text,
+	position_x double precision,
+	position_y double precision,
 	created_at timestamp default current_timestamp
 );
 

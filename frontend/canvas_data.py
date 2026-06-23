@@ -29,10 +29,15 @@ def build_canvas_nodes(
         default_y = 80 + (index // 4) * 140
 
         saved_position = graph_positions.get(str(item["id"]))
+        db_x = item.get("position_x")
+        db_y = item.get("position_y")
 
         if saved_position:
             x = saved_position.get("x", default_x)
             y = saved_position.get("y", default_y)
+        elif db_x is not None and db_y is not None:
+            x = db_x
+            y = db_y
         else:
             x = default_x
             y = default_y
