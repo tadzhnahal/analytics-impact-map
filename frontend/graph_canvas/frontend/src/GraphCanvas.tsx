@@ -5,6 +5,7 @@ import {
   Edge,
   MiniMap,
   Node,
+  PanOnScrollMode,
   ReactFlow,
   useEdgesState,
   useNodesState
@@ -956,7 +957,10 @@ function GraphCanvas(props: ComponentProps) {
         fitView
         fitViewOptions={{ padding: 0.16 }}
         panOnDrag={spacePressed}
-        zoomOnScroll
+        panOnScroll
+        panOnScrollMode={PanOnScrollMode.Free}
+        panOnScrollSpeed={0.8}
+        zoomOnScroll={false}
         zoomOnPinch
         zoomOnDoubleClick={false}
         nodesDraggable
