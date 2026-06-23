@@ -1,10 +1,20 @@
 from fastapi import FastAPI, HTTPException
+
 from analysis import build_adjacency, collect_affected_ids
 from db import get_db_connection
-from schemas import (AnalysisResultOut, AnalysisRunRequest, ComponentCreate,
-                     ComponentOut, DependencyCreate, DependencyOut,)
+from schemas import (
+    AnalysisResultOut,
+    AnalysisRunRequest,
+    ComponentCreate,
+    ComponentOut,
+    ComponentPositionsUpdate,
+    DependencyCreate,
+    DependencyOut,
+)
+
 
 app = FastAPI(title="Analytics Impact Map")
+
 
 def component_row_to_dict(row):
     return {
@@ -12,7 +22,10 @@ def component_row_to_dict(row):
         "name": row[1],
         "component_type": row[2],
         "description": row[3],
+        "position_x": row[4],
+        "position_y": row[5],
     }
+
 
 def dependency_row_to_dict(row):
     return {
@@ -22,9 +35,11 @@ def dependency_row_to_dict(row):
         "dependency_type": row[3],
     }
 
+
 @app.get("/")
 def root():
     return {"message": "бэк жив"}
+
 
 @app.get("/health/db")
 def health_db():
@@ -39,8 +54,10 @@ def health_db():
             "database": "connected",
             "result": row[0],
         }
+
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"db error: {e}")
+
 
 @app.post("/components", response_model=ComponentOut)
 def create_component(component: ComponentCreate):
@@ -49,11 +66,29 @@ def create_component(component: ComponentCreate):
             with conn.cursor() as cur:
                 cur.execute(
                     """
-                    insert into components (name, component_type, description)
-                    values (%s, %s, %s)
-                    returning id, name, component_type, description;
+                    insert into components (
+                        name,
+                        component_type,
+                        description,
+                        position_x,
+                        position_y
+                    )
+                    values (%s, %s, %s, %s, %s)
+                    returning
+                        id,
+                        name,
+                        component_type,
+                        description,
+                        position_x,
+                        position_y;
                     """,
-                    (component.name, component.component_type, component.description),
+                    (
+                        component.name,
+                        component.component_type,
+                        component.description,
+                        component.position_x,
+                        component.position_y,
+                    ),
                 )
                 row = cur.fetchone()
 
@@ -63,9 +98,13 @@ def create_component(component: ComponentCreate):
         error_text = str(e).lower()
 
         if "duplicate key value" in error_text:
-            raise HTTPException(status_code=400, detail="component with this name already exists")
+            raise HTTPException(
+                status_code=400,
+                detail="component with this name already exists",
+            )
 
         raise HTTPException(status_code=500, detail=f"db error: {e}")
+
 
 @app.get("/components", response_model=list[ComponentOut])
 def get_components():
@@ -74,7 +113,13 @@ def get_components():
             with conn.cursor() as cur:
                 cur.execute(
                     """
-                    select id, name, component_type, description
+                    select
+                        id,
+                        name,
+                        component_type,
+                        description,
+                        position_x,
+                        position_y
                     from components
                     order by id;
                     """
@@ -90,6 +135,58 @@ def get_components():
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"db error: {e}")
 
+
+@app.put("/components/positions")
+def update_component_positions(payload: ComponentPositionsUpdate):
+    try:
+        updated_count = 0
+
+        with get_db_connection() as conn:
+            with conn.cursor() as cur:
+                for item in payload.positions:
+                    cur.execute(
+                        """
+                        update components
+                        set position_x = %s,
+                            position_y = %s
+                        where id = %s;
+                        """,
+                        (item.position_x, item.position_y, item.id),
+                    )
+                    updated_count += cur.rowcount
+
+        return {
+            "message": "positions saved",
+            "updated_count": updated_count,
+        }
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"db error: {e}")
+
+
+@app.delete("/components/positions")
+def clear_component_positions():
+    try:
+        with get_db_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    update components
+                    set position_x = null,
+                        position_y = null;
+                    """
+                )
+                updated_count = cur.rowcount
+
+        return {
+            "message": "positions cleared",
+            "updated_count": updated_count,
+        }
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"db error: {e}")
+
+
 @app.put("/components/{component_id}", response_model=ComponentOut)
 def update_component(component_id: int, component: ComponentCreate):
     try:
@@ -103,9 +200,20 @@ def update_component(component_id: int, component: ComponentCreate):
                 component_type = %s,
                 description = %s
             where id = %s
-            returning id, name, component_type, description;
+            returning
+                id,
+                name,
+                component_type,
+                description,
+                position_x,
+                position_y;
             """,
-            (component.name, component.component_type, component.description, component_id),
+            (
+                component.name,
+                component.component_type,
+                component.description,
+                component_id,
+            ),
         )
 
         row = cur.fetchone()
@@ -120,12 +228,7 @@ def update_component(component_id: int, component: ComponentCreate):
         cur.close()
         conn.close()
 
-        return {
-            "id": row[0],
-            "name": row[1],
-            "component_type": row[2],
-            "description": row[3],
-        }
+        return component_row_to_dict(row)
 
     except HTTPException:
         raise
@@ -134,9 +237,13 @@ def update_component(component_id: int, component: ComponentCreate):
         error_text = str(e).lower()
 
         if "duplicate key value" in error_text:
-            raise HTTPException(status_code=400, detail="component with this name already exists")
+            raise HTTPException(
+                status_code=400,
+                detail="component with this name already exists",
+            )
 
         raise HTTPException(status_code=500, detail=f"db error: {e}")
+
 
 @app.delete("/components/{component_id}")
 def delete_component(component_id: int):
@@ -163,6 +270,7 @@ def delete_component(component_id: int):
                     """,
                     (component_id,),
                 )
+
         return {
             "message": "component deleted",
             "deleted_component_id": row[0],
@@ -175,13 +283,20 @@ def delete_component(component_id: int):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"db error: {e}")
 
+
 @app.post("/dependencies", response_model=DependencyOut)
 def create_dependency(dependency: DependencyCreate):
     if dependency.source_component_id == dependency.target_component_id:
-        raise HTTPException(status_code=400, detail="component cannot depend on itself")
+        raise HTTPException(
+            status_code=400,
+            detail="component cannot depend on itself",
+        )
 
     if dependency.dependency_type not in ["hard", "soft"]:
-        raise HTTPException(status_code=400, detail="dependency_type must be hard or soft")
+        raise HTTPException(
+            status_code=400,
+            detail="dependency_type must be hard or soft",
+        )
 
     try:
         with get_db_connection() as conn:
@@ -199,13 +314,24 @@ def create_dependency(dependency: DependencyCreate):
                 target_row = cur.fetchone()
 
                 if not source_row or not target_row:
-                    raise HTTPException(status_code=404, detail="one or both components do not exist")
+                    raise HTTPException(
+                        status_code=404,
+                        detail="one or both components do not exist",
+                    )
 
                 cur.execute(
                     """
-                    insert into dependencies (source_component_id, target_component_id, dependency_type)
+                    insert into dependencies (
+                        source_component_id,
+                        target_component_id,
+                        dependency_type
+                    )
                     values (%s, %s, %s)
-                    returning id, source_component_id, target_component_id, dependency_type;
+                    returning
+                        id,
+                        source_component_id,
+                        target_component_id,
+                        dependency_type;
                     """,
                     (
                         dependency.source_component_id,
@@ -224,9 +350,13 @@ def create_dependency(dependency: DependencyCreate):
         error_text = str(e).lower()
 
         if "duplicate key value" in error_text:
-            raise HTTPException(status_code=400, detail="this dependency already exists")
+            raise HTTPException(
+                status_code=400,
+                detail="this dependency already exists",
+            )
 
         raise HTTPException(status_code=500, detail=f"db error: {e}")
+
 
 @app.get("/dependencies", response_model=list[DependencyOut])
 def get_dependencies():
@@ -235,7 +365,11 @@ def get_dependencies():
             with conn.cursor() as cur:
                 cur.execute(
                     """
-                    select id, source_component_id, target_component_id, dependency_type
+                    select
+                        id,
+                        source_component_id,
+                        target_component_id,
+                        dependency_type
                     from dependencies
                     order by id;
                     """
@@ -251,13 +385,20 @@ def get_dependencies():
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"db error: {e}")
 
+
 @app.put("/dependencies/{dependency_id}", response_model=DependencyOut)
 def update_dependency(dependency_id: int, dependency: DependencyCreate):
     if dependency.source_component_id == dependency.target_component_id:
-        raise HTTPException(status_code=400, detail="component cannot depend on itself")
+        raise HTTPException(
+            status_code=400,
+            detail="component cannot depend on itself",
+        )
 
     if dependency.dependency_type not in ["hard", "soft"]:
-        raise HTTPException(status_code=400, detail="dependency_type must be hard or soft")
+        raise HTTPException(
+            status_code=400,
+            detail="dependency_type must be hard or soft",
+        )
 
     try:
         conn = get_db_connection()
@@ -289,7 +430,10 @@ def update_dependency(dependency_id: int, dependency: DependencyCreate):
         if not source_row or not target_row:
             cur.close()
             conn.close()
-            raise HTTPException(status_code=404, detail="one or both components do not exist")
+            raise HTTPException(
+                status_code=404,
+                detail="one or both components do not exist",
+            )
 
         cur.execute(
             """
@@ -298,7 +442,11 @@ def update_dependency(dependency_id: int, dependency: DependencyCreate):
                 target_component_id = %s,
                 dependency_type = %s
             where id = %s
-            returning id, source_component_id, target_component_id, dependency_type;
+            returning
+                id,
+                source_component_id,
+                target_component_id,
+                dependency_type;
             """,
             (
                 dependency.source_component_id,
@@ -314,12 +462,7 @@ def update_dependency(dependency_id: int, dependency: DependencyCreate):
         cur.close()
         conn.close()
 
-        return {
-            "id": row[0],
-            "source_component_id": row[1],
-            "target_component_id": row[2],
-            "dependency_type": row[3],
-        }
+        return dependency_row_to_dict(row)
 
     except HTTPException:
         raise
@@ -328,9 +471,13 @@ def update_dependency(dependency_id: int, dependency: DependencyCreate):
         error_text = str(e).lower()
 
         if "duplicate key value" in error_text:
-            raise HTTPException(status_code=400, detail="this dependency already exists")
+            raise HTTPException(
+                status_code=400,
+                detail="this dependency already exists",
+            )
 
         raise HTTPException(status_code=500, detail=f"db error: {e}")
+
 
 @app.delete("/dependencies/{dependency_id}")
 def delete_dependency(dependency_id: int):
@@ -339,9 +486,13 @@ def delete_dependency(dependency_id: int):
             with conn.cursor() as cur:
                 cur.execute(
                     """
-                    select id, source_component_id, target_component_id, dependency_type
+                    select
+                        id,
+                        source_component_id,
+                        target_component_id,
+                        dependency_type
                     from dependencies
-                    where id = %s
+                    where id = %s;
                     """,
                     (dependency_id,),
                 )
@@ -372,6 +523,7 @@ def delete_dependency(dependency_id: int):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"db error: {e}")
 
+
 @app.post("/analysis/run", response_model=AnalysisResultOut)
 def run_analysis(payload: AnalysisRunRequest):
     try:
@@ -379,7 +531,13 @@ def run_analysis(payload: AnalysisRunRequest):
             with conn.cursor() as cur:
                 cur.execute(
                     """
-                    select id, name, component_type, description
+                    select
+                        id,
+                        name,
+                        component_type,
+                        description,
+                        position_x,
+                        position_y
                     from components
                     where id = %s;
                     """,
@@ -400,14 +558,23 @@ def run_analysis(payload: AnalysisRunRequest):
                 dependency_rows = cur.fetchall()
 
                 graph = build_adjacency(dependency_rows)
-                affected_ids = collect_affected_ids(payload.component_id, graph)
+                affected_ids = collect_affected_ids(
+                    payload.component_id,
+                    graph,
+                )
 
                 affected_components = []
 
                 if affected_ids:
                     cur.execute(
                         """
-                        select id, name, component_type, description
+                        select
+                            id,
+                            name,
+                            component_type,
+                            description,
+                            position_x,
+                            position_y
                         from components
                         where id = any(%s)
                         order by id;

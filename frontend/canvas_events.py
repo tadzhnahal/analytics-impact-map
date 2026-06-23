@@ -2,7 +2,8 @@ import streamlit as st
 
 from api import (create_component, create_dependency, delete_component_by_id,
                  delete_dependency_by_id, run_analysis, update_component_by_id,
-                 update_dependency_by_id)
+                 update_dependency_by_id, clear_component_positions,
+                 update_component_positions)
 from app_state import clear_graph_selection, reset_after_data_change
 from canvas_data import to_int
 
@@ -44,6 +45,8 @@ def create_component_from_canvas(payload):
             name=name,
             component_type=component_type,
             description=description,
+            position_x=x_position,
+            position_y=y_position,
         )
 
         if created_component and "id" in created_component:
@@ -268,6 +271,11 @@ def handle_canvas_event(canvas_event):
     st.session_state["last_canvas_event_type"] = event_type
 
     if event_type == "node_drag_stop":
+        try:
+            update_component_positions(positions)
+        except Exception as e:
+            st.session_state["canvas_message"] = f"Не удалость сохранить координаты: {e}"
+
         return
 
     if event_type == "create_component":
@@ -299,6 +307,12 @@ def handle_canvas_event(canvas_event):
         return
 
     if event_type == "reset_layout":
+        try:
+            clear_component_positions()
+        except Exception as e:
+            st.session_state["canvas_message"] = f"Не удалось сбросить координаты в базе: {e}"
+            return
+
         st.session_state["graph_positions"] = {}
         st.session_state["layout_version"] += 1
         st.session_state["canvas_message"] = "Раскладка сброшена"
