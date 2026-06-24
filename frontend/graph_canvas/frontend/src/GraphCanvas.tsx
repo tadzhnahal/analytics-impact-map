@@ -1,12 +1,14 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Background,
+  Connection,
   Controls,
   Edge,
   MiniMap,
   Node,
   PanOnScrollMode,
   ReactFlow,
+  reconnectEdge,
   useEdgesState,
   useNodesState
 } from "@xyflow/react";
@@ -100,6 +102,16 @@ function getEdgeIdFromTarget(target: EventTarget | null) {
   return "";
 }
 
+function getEdgeDependencyType(rawEdges: RawEdge[], edgeId: string) {
+  const rawEdge = rawEdges.find((edge) => String(edge.id) === String(edgeId));
+
+  if (!rawEdge) {
+    return "hard";
+  }
+
+  return rawEdge.dependency_type || "hard";
+}
+
 function GraphCanvas(props: ComponentProps) {
   const rawNodes = (props.args["nodes"] ?? []) as RawNode[];
   const rawEdges = (props.args["edges"] ?? []) as RawEdge[];
@@ -108,10 +120,11 @@ function GraphCanvas(props: ComponentProps) {
 
   const initialNodes = useMemo(() => buildNodes(rawNodes), [rawNodes]);
   const initialEdges = useMemo(() => buildEdges(rawEdges), [rawEdges]);
+
   const nodeTypes = useMemo(() => {
-      return {
-        componentNode: ComponentNode
-      };
+    return {
+      componentNode: ComponentNode
+    };
   }, []);
 
   const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes);
@@ -487,7 +500,9 @@ function GraphCanvas(props: ComponentProps) {
     sendSimpleEvent("create_dependency", "toolbar", [], [], {
       source_component_id: sourceNodeId,
       target_component_id: targetNodeId,
-      dependency_type: dependencyType
+      dependency_type: dependencyType,
+      source_handle: "source-right",
+      target_handle: "target-left"
     });
 
     closeMenus();
@@ -559,11 +574,15 @@ function GraphCanvas(props: ComponentProps) {
       return;
     }
 
+    const rawEdge = rawEdges.find((edge) => edge.id === editDependencyId);
+
     sendSimpleEvent("update_dependency", "toolbar", [], [editDependencyId], {
       dependency_id: editDependencyId,
       source_component_id: editSourceNodeId,
       target_component_id: editTargetNodeId,
-      dependency_type: editDependencyType
+      dependency_type: editDependencyType,
+      source_handle: rawEdge?.source_handle || "source-right",
+      target_handle: rawEdge?.target_handle || "target-left"
     });
 
     closeMenus();
@@ -759,7 +778,9 @@ function GraphCanvas(props: ComponentProps) {
       dependency_id: selectedEdge.id,
       source_component_id: selectedEdge.source,
       target_component_id: selectedEdge.target,
-      dependency_type: nextDependencyType
+      dependency_type: nextDependencyType,
+      source_handle: selectedEdge.source_handle || "source-right",
+      target_handle: selectedEdge.target_handle || "target-left"
     });
 
     closeMenus();
@@ -768,6 +789,78 @@ function GraphCanvas(props: ComponentProps) {
   const resetLayoutFromContext = () => {
     sendSimpleEvent("reset_layout", "context_menu", [], []);
     closeMenus();
+  };
+
+  const createDependencyFromConnection = (connection: Connection) => {
+    if (!connection.source || !connection.target) {
+      return;
+    }
+
+    if (connection.source === connection.target) {
+      return;
+    }
+
+    const sourceHandle = connection.sourceHandle || "source-right";
+    const targetHandle = connection.targetHandle || "target-left";
+
+    hideContextMenu();
+    setCreateMenuOpen(false);
+    setEditMenuOpen(false);
+    setDeleteMenuOpen(false);
+
+    sendSimpleEvent("create_dependency", "edge", [], [], {
+      source_component_id: connection.source,
+      target_component_id: connection.target,
+      dependency_type: "hard",
+      source_handle: sourceHandle,
+      target_handle: targetHandle
+    });
+  };
+
+  const updateDependencyFromReconnect = (oldEdge: Edge, connection: Connection) => {
+    const sourceId = connection.source || oldEdge.source;
+    const targetId = connection.target || oldEdge.target;
+
+    if (!sourceId || !targetId) {
+      return;
+    }
+
+    if (sourceId === targetId) {
+      return;
+    }
+
+    const rawEdge = rawEdges.find((edge) => String(edge.id) === String(oldEdge.id));
+    const dependencyType = getEdgeDependencyType(rawEdges, oldEdge.id);
+    const sourceHandle = connection.sourceHandle || oldEdge.sourceHandle || rawEdge?.source_handle || "source-right";
+    const targetHandle = connection.targetHandle || oldEdge.targetHandle || rawEdge?.target_handle || "target-left";
+
+    hideContextMenu();
+    setCreateMenuOpen(false);
+    setEditMenuOpen(false);
+    setDeleteMenuOpen(false);
+
+    setEdges((currentEdges) => {
+      const nextEdges = reconnectEdge(oldEdge, connection, currentEdges).map((edge) => ({
+        ...edge,
+        selected: edge.id === oldEdge.id
+      }));
+
+      latestEdgesRef.current = nextEdges;
+      return nextEdges;
+    });
+
+    selectedNodeIdsRef.current = [];
+    selectedEdgeIdsRef.current = [oldEdge.id];
+    selectionChangedRef.current = false;
+
+    sendSimpleEvent("update_dependency", "edge", [], [oldEdge.id], {
+      dependency_id: oldEdge.id,
+      source_component_id: sourceId,
+      target_component_id: targetId,
+      dependency_type: dependencyType,
+      source_handle: sourceHandle,
+      target_handle: targetHandle
+    });
   };
 
   const handleSelectionChange = useCallback((selectedNodes: Node[], selectedEdges: Edge[]) => {
@@ -842,218 +935,222 @@ function GraphCanvas(props: ComponentProps) {
   };
 
   return (
-  <div className="graph-canvas-frame">
-    <div
-      ref={shellRef}
-      className={spacePressed ? "graph-canvas-shell graph-space-mode" : "graph-canvas-shell"}
-      onTouchStart={handleTwoFingerTouchStart}
-      onTouchMove={handleTwoFingerTouchMove}
-      onTouchEnd={handleTwoFingerTouchEnd}
-    >
+    <div className="graph-canvas-frame">
       <div
-        className="graph-floating-tools"
-        onClick={(event) => event.stopPropagation()}
-        onMouseDown={(event) => event.stopPropagation()}
+        ref={shellRef}
+        className={spacePressed ? "graph-canvas-shell graph-space-mode" : "graph-canvas-shell"}
+        onTouchStart={handleTwoFingerTouchStart}
+        onTouchMove={handleTwoFingerTouchMove}
+        onTouchEnd={handleTwoFingerTouchEnd}
       >
-        <Toolbar
-          analysisMode={analysisMode}
-          createMenuOpen={createMenuOpen}
-          editMenuOpen={editMenuOpen}
-          deleteMenuOpen={deleteMenuOpen}
-          latestNodesRef={latestNodesRef}
-          latestEdgesRef={latestEdgesRef}
-          setCreateMenuOpen={setCreateMenuOpen}
-          setEditMenuOpen={setEditMenuOpen}
-          setDeleteMenuOpen={setDeleteMenuOpen}
-          openCreateButtonClick={openCreateMenuFromToolbar}
-          openEditMenu={openEditMenu}
-          openDeleteMenu={openDeleteMenu}
-          sendSimpleEvent={sendSimpleEvent}
+        <div
+          className="graph-floating-tools"
+          onClick={(event) => event.stopPropagation()}
+          onMouseDown={(event) => event.stopPropagation()}
+        >
+          <Toolbar
+            analysisMode={analysisMode}
+            createMenuOpen={createMenuOpen}
+            editMenuOpen={editMenuOpen}
+            deleteMenuOpen={deleteMenuOpen}
+            latestNodesRef={latestNodesRef}
+            latestEdgesRef={latestEdgesRef}
+            setCreateMenuOpen={setCreateMenuOpen}
+            setEditMenuOpen={setEditMenuOpen}
+            setDeleteMenuOpen={setDeleteMenuOpen}
+            openCreateButtonClick={openCreateMenuFromToolbar}
+            openEditMenu={openEditMenu}
+            openDeleteMenu={openDeleteMenu}
+            sendSimpleEvent={sendSimpleEvent}
+          />
+
+          {createMenuOpen && (
+            <CreateMenu
+              rawNodes={rawNodes}
+              createMenuTab={createMenuTab}
+              setCreateMenuTab={setCreateMenuTab}
+              componentName={componentName}
+              setComponentName={setComponentName}
+              componentType={componentType}
+              setComponentType={setComponentType}
+              componentDescription={componentDescription}
+              setComponentDescription={setComponentDescription}
+              sourceNodeId={sourceNodeId}
+              setSourceNodeId={setSourceNodeId}
+              targetNodeId={targetNodeId}
+              setTargetNodeId={setTargetNodeId}
+              dependencyType={dependencyType}
+              setDependencyType={setDependencyType}
+              createComponent={createComponent}
+              createDependency={createDependency}
+            />
+          )}
+
+          {editMenuOpen && (
+            <EditMenu
+              rawNodes={rawNodes}
+              editTargetType={editTargetType}
+              editComponentName={editComponentName}
+              setEditComponentName={setEditComponentName}
+              editComponentType={editComponentType}
+              setEditComponentType={setEditComponentType}
+              editComponentDescription={editComponentDescription}
+              setEditComponentDescription={setEditComponentDescription}
+              editSourceNodeId={editSourceNodeId}
+              setEditSourceNodeId={setEditSourceNodeId}
+              editTargetNodeId={editTargetNodeId}
+              setEditTargetNodeId={setEditTargetNodeId}
+              editDependencyType={editDependencyType}
+              setEditDependencyType={setEditDependencyType}
+              updateComponent={updateComponent}
+              updateDependency={updateDependency}
+            />
+          )}
+
+          {deleteMenuOpen && (
+            <DeleteMenu
+              deleteTargetType={deleteTargetType}
+              deleteTargetLabel={deleteTargetLabel}
+              deleteSelectedObject={deleteSelectedObject}
+            />
+          )}
+        </div>
+
+        <ContextMenu
+          menu={contextMenu}
+          canCreateDependency={rawNodes.length > 1}
+          onClose={hideContextMenu}
+          onRunAnalysis={runAnalysisFromContext}
+          onEdit={openEditMenuFromContext}
+          onDelete={openDeleteMenuFromContext}
+          onCreateDependencyFromNode={createDependencyFromContextNode}
+          onCreateComponent={createComponentFromContextPane}
+          onResetLayout={resetLayoutFromContext}
+          onToggleDependencyType={toggleDependencyTypeFromContext}
         />
 
-        {createMenuOpen && (
-          <CreateMenu
-            rawNodes={rawNodes}
-            createMenuTab={createMenuTab}
-            setCreateMenuTab={setCreateMenuTab}
-            componentName={componentName}
-            setComponentName={setComponentName}
-            componentType={componentType}
-            setComponentType={setComponentType}
-            componentDescription={componentDescription}
-            setComponentDescription={setComponentDescription}
-            sourceNodeId={sourceNodeId}
-            setSourceNodeId={setSourceNodeId}
-            targetNodeId={targetNodeId}
-            setTargetNodeId={setTargetNodeId}
-            dependencyType={dependencyType}
-            setDependencyType={setDependencyType}
-            createComponent={createComponent}
-            createDependency={createDependency}
-          />
+        {analysisMode && (
+          <div className="graph-mode-badge">
+            Анализ: кликните по узлу
+          </div>
         )}
 
-        {editMenuOpen && (
-          <EditMenu
-            rawNodes={rawNodes}
-            editTargetType={editTargetType}
-            editComponentName={editComponentName}
-            setEditComponentName={setEditComponentName}
-            editComponentType={editComponentType}
-            setEditComponentType={setEditComponentType}
-            editComponentDescription={editComponentDescription}
-            setEditComponentDescription={setEditComponentDescription}
-            editSourceNodeId={editSourceNodeId}
-            setEditSourceNodeId={setEditSourceNodeId}
-            editTargetNodeId={editTargetNodeId}
-            setEditTargetNodeId={setEditTargetNodeId}
-            editDependencyType={editDependencyType}
-            setEditDependencyType={setEditDependencyType}
-            updateComponent={updateComponent}
-            updateDependency={updateDependency}
-          />
+        {spacePressed && (
+          <div className="graph-space-badge">
+            Перемещение карты
+          </div>
         )}
 
-        {deleteMenuOpen && (
-          <DeleteMenu
-            deleteTargetType={deleteTargetType}
-            deleteTargetLabel={deleteTargetLabel}
-            deleteSelectedObject={deleteSelectedObject}
-          />
-        )}
-      </div>
-
-      <ContextMenu
-        menu={contextMenu}
-        canCreateDependency={rawNodes.length > 1}
-        onClose={hideContextMenu}
-        onRunAnalysis={runAnalysisFromContext}
-        onEdit={openEditMenuFromContext}
-        onDelete={openDeleteMenuFromContext}
-        onCreateDependencyFromNode={createDependencyFromContextNode}
-        onCreateComponent={createComponentFromContextPane}
-        onResetLayout={resetLayoutFromContext}
-        onToggleDependencyType={toggleDependencyTypeFromContext}
-      />
-
-      {analysisMode && (
-        <div className="graph-mode-badge">
-          Анализ: кликните по узлу
+        <div className="graph-brand-watermark">
+          Comanche Airflop
         </div>
-      )}
 
-      {spacePressed && (
-        <div className="graph-space-badge">
-          Перемещение карты
-        </div>
-      )}
+        <ReactFlow
+          onInit={(instance) => {
+            reactFlowInstanceRef.current = instance;
+          }}
+          nodeTypes={nodeTypes}
+          className="graph-flow"
+          style={{ width: "100%", height: "100%" }}
+          nodes={nodes}
+          edges={edges}
+          fitView
+          fitViewOptions={{ padding: 0.16 }}
+          panOnDrag={spacePressed}
+          panOnScroll
+          panOnScrollMode={PanOnScrollMode.Free}
+          panOnScrollSpeed={0.8}
+          zoomOnScroll={false}
+          zoomOnPinch
+          zoomOnDoubleClick={false}
+          nodesDraggable
+          nodesConnectable
+          edgesReconnectable
+          edgesFocusable
+          nodesFocusable
+          elementsSelectable
+          selectionOnDrag={!spacePressed}
+          selectionKeyCode={null}
+          multiSelectionKeyCode={["Meta", "Control", "Shift"]}
+          onNodesChange={onNodesChange}
+          onEdgesChange={onEdgesChange}
+          onConnect={createDependencyFromConnection}
+          onReconnect={updateDependencyFromReconnect}
+          onReconnectStart={hideContextMenu}
+          onPaneClick={() => {
+            if (ignoreNextPaneClickRef.current) {
+              return;
+            }
 
-      <div className="graph-brand-watermark">
-        Comanche Airflop
-      </div>
+            closeMenus();
+            sendSimpleEvent("pane_click", "pane", [], []);
+          }}
+          onPaneContextMenu={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            openPaneContextMenu(event.clientX, event.clientY);
+          }}
+          onNodeClick={(event, node) => {
+            hideContextMenu();
 
-      <ReactFlow
-        onInit={(instance) => {
-          reactFlowInstanceRef.current = instance;
-        }}
-        nodeTypes={nodeTypes}
-        className="graph-flow"
-        style={{ width: "100%", height: "100%" }}
-        nodes={nodes}
-        edges={edges}
-        fitView
-        fitViewOptions={{ padding: 0.16 }}
-        panOnDrag={spacePressed}
-        panOnScroll
-        panOnScrollMode={PanOnScrollMode.Free}
-        panOnScrollSpeed={0.8}
-        zoomOnScroll={false}
-        zoomOnPinch
-        zoomOnDoubleClick={false}
-        nodesDraggable
-        nodesConnectable={false}
-        edgesFocusable
-        nodesFocusable
-        elementsSelectable
-        selectionOnDrag={!spacePressed}
-        selectionKeyCode={null}
-        multiSelectionKeyCode={["Meta", "Control", "Shift"]}
-        onNodesChange={onNodesChange}
-        onEdgesChange={onEdgesChange}
-        onPaneClick={() => {
-          if (ignoreNextPaneClickRef.current) {
-            return;
-          }
+            if (analysisMode) {
+              sendSimpleEvent("run_analysis", "node", [node.id], []);
+              return;
+            }
 
-          closeMenus();
-          sendSimpleEvent("pane_click", "pane", [], []);
-        }}
-        onPaneContextMenu={(event) => {
-          event.preventDefault();
-          event.stopPropagation();
-          openPaneContextMenu(event.clientX, event.clientY);
-        }}
-        onNodeClick={(event, node) => {
-          hideContextMenu();
+            const isMultiClick = event.shiftKey || event.ctrlKey || event.metaKey;
 
-          if (analysisMode) {
-            sendSimpleEvent("run_analysis", "node", [node.id], []);
-            return;
-          }
+            if (isMultiClick) {
+              return;
+            }
 
-          const isMultiClick = event.shiftKey || event.ctrlKey || event.metaKey;
-
-          if (isMultiClick) {
-            return;
-          }
-
-          skipNextSelectionSendRef.current = true;
-          sendSimpleEvent("node_click", "node", [node.id], []);
-        }}
-        onNodeDoubleClick={(event) => {
-          event.preventDefault();
-        }}
-        onNodeContextMenu={(event, node) => {
-          event.preventDefault();
-          event.stopPropagation();
-          openNodeContextMenu(event.clientX, event.clientY, node.id);
-        }}
-        onEdgeClick={(_, edge) => {
-          hideContextMenu();
-          skipNextSelectionSendRef.current = true;
-          sendSimpleEvent("edge_click", "edge", [], [edge.id]);
-        }}
-        onEdgeContextMenu={(event, edge) => {
-          event.preventDefault();
-          event.stopPropagation();
-          openEdgeContextMenu(event.clientX, event.clientY, edge.id);
-        }}
-        onNodeDragStart={() => {
-          hideContextMenu();
-          nodeDragHappenedRef.current = true;
-        }}
-        onNodeDragStop={(_, node) => {
-          window.requestAnimationFrame(() => {
-            sendEvent({
-              event_type: "node_drag_stop",
-              target_type: "node",
-              node_ids: [node.id],
-              edge_ids: [],
-              positions: buildPositions(latestNodesRef.current)
+            skipNextSelectionSendRef.current = true;
+            sendSimpleEvent("node_click", "node", [node.id], []);
+          }}
+          onNodeDoubleClick={(event) => {
+            event.preventDefault();
+          }}
+          onNodeContextMenu={(event, node) => {
+            event.preventDefault();
+            event.stopPropagation();
+            openNodeContextMenu(event.clientX, event.clientY, node.id);
+          }}
+          onEdgeClick={(_, edge) => {
+            hideContextMenu();
+            skipNextSelectionSendRef.current = true;
+            sendSimpleEvent("edge_click", "edge", [], [edge.id]);
+          }}
+          onEdgeContextMenu={(event, edge) => {
+            event.preventDefault();
+            event.stopPropagation();
+            openEdgeContextMenu(event.clientX, event.clientY, edge.id);
+          }}
+          onNodeDragStart={() => {
+            hideContextMenu();
+            nodeDragHappenedRef.current = true;
+          }}
+          onNodeDragStop={(_, node) => {
+            window.requestAnimationFrame(() => {
+              sendEvent({
+                event_type: "node_drag_stop",
+                target_type: "node",
+                node_ids: [node.id],
+                edge_ids: [],
+                positions: buildPositions(latestNodesRef.current)
+              });
             });
-          });
-        }}
-        onSelectionChange={({ nodes: selectedNodes, edges: selectedEdges }) => {
-          handleSelectionChange(selectedNodes, selectedEdges);
-        }}
-        proOptions={{ hideAttribution: true }}
-      >
-        <MiniMap className="graph-minimap" />
-        <Controls />
-        <Background />
+          }}
+          onSelectionChange={({ nodes: selectedNodes, edges: selectedEdges }) => {
+            handleSelectionChange(selectedNodes, selectedEdges);
+          }}
+          proOptions={{ hideAttribution: true }}
+        >
+          <MiniMap className="graph-minimap" />
+          <Controls />
+          <Background />
         </ReactFlow>
+      </div>
     </div>
-  </div>
   );
 }
 
